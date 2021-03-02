@@ -1,0 +1,8 @@
+name: spherical-vae
+dependencies:
+  - python=3.8
+  - jupyter
+  - notebook
+  - pip
+  - pip:
+    - -r file:requirements.txt

@@ -1,0 +1,8 @@
+tqdm
+numpy
+pandas
+matplotlib
+seaborn
+torch
+black
+-e .
