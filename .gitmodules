@@ -1,0 +1,3 @@
+[submodule "cusf"]
+	path = cusf
+	url = https://gitlab.gbar.dtu.dk/hhbs/cusf
