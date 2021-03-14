@@ -36,24 +36,25 @@ class ReparameterizedDiagonalGaussian(Distribution):
 
 class SphereUniform(Distribution):
 
-    arg_constraints = {
-        "dim" : torch.distributions.constraints.positive_integer,
-    }
+    arg_constraints = {}
+
     has_rsample = False
 
-    def __init__(self, dim: Tensor, validate_args=None):
+    def __init__(self, dim: int, validate_args=None):
 
-        self.dim = torch.tensor(dim)
+        self.dim = dim
         self._normal = Normal(0, 1)
 
         super().__init__(
-            torch.Size([dim]),
+            torch.Size([dim+1]),
             validate_args=validate_args,
         )
 
-    def sample(self, shape=torch.Size()):
+    def sample(self, sample_shape=torch.Size()):
 
-        norm_sample = self._normal.sample(shape + torch.Size([self.dim+1]) )
+        sample_shape = torch.Size(sample_shape)
+
+        norm_sample = self._normal.sample(sample_shape + torch.Size([self.dim+1]) )
 
         return norm_sample / norm_sample.norm(dim=-1, keepdim=True)
 
@@ -71,11 +72,11 @@ class VonMisesFisher(Distribution):
         self.kappa = kappa
         self.m = mu.shape[-1]
 
-        #TODO: Fix batch/event size
         self.beta = Beta((self.m-1)/2, (self.m-1)/2)
 
         super().__init__(
-            self.mu.size,
+            batch_shape=torch.Size(self.mu.shape[:-1]),
+            event_shape=torch.Size([self.mu.shape[-1]]),
             validate_args=validate_args,
         )
     

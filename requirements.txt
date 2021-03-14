@@ -5,4 +5,5 @@ matplotlib
 seaborn
 torch
 black
+plotly
 -e .
