@@ -6,4 +6,5 @@ seaborn
 torch
 black
 plotly
+sklearn
 -e .
