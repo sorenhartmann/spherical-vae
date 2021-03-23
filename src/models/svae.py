@@ -60,7 +60,7 @@ class SphericalVAE(Module):
     def observation_model(self, z: Tensor) -> Distribution:
         """return the distribution `p(x|z)`"""
         h_z = self.decoder(z)
-        mu, log_sigma = h_z.data.chunk(2, dim=-1)
+        mu, log_sigma = h_z.chunk(2, dim=-1)
 
         return Normal(mu, log_sigma.exp())
 
@@ -82,31 +82,6 @@ class SphericalVAE(Module):
 # %% 
 if __name__ == "__main__":
 
-    X, y = genNoisySynthDataS2(plotCartesian=False, Nsamples=100)
-
-    X = torch.tensor(X, dtype=torch.float)
-    y = torch.tensor(y, dtype=torch.float)
-
-    feature_dim = X.shape[-1]
-
-    svae = SphericalVAE(feature_dim=feature_dim, latent_dim=3)
-
-    vmf = svae.posterior(X)
-    sample_shape = torch.Size([100])
-    z = vmf.rsample(sample_shape).detach().numpy()
-
-    fig = go.Figure()
-    for i in range(z.shape[-2]):
-        x, y, z_ = z[:, i, :].T
-        fig.add_trace((go.Scatter3d(
-            x=x, 
-            y=y, 
-            z=z_, 
-            mode="markers"
-        )))
-
-    output = svae(X)
-    
     # Splitting synthetic data into train and validation 
     X, y = genNoisySynthDataS2(plotCartesian=False, Nsamples=100)
 
@@ -118,7 +93,7 @@ if __name__ == "__main__":
     y_val = torch.tensor(y_val, dtype=torch.float)
     
     ## Training loop
-    n_epochs = 3
+    n_epochs = 100
     batch_size = 16
 
     n_batches_train = int(np.ceil(X_train.shape[0]/batch_size))
@@ -130,10 +105,10 @@ if __name__ == "__main__":
     validation_loss = [None]*n_epochs
     
     # Model and optimizer
+    feature_dim = X.shape[-1]
     svae = SphericalVAE(feature_dim=feature_dim, latent_dim=3)
 
     optimizer = torch.optim.Adam(svae.parameters(), lr=1e-3) 
-
     for epoch in range(n_epochs):
 
         trainloader = torch.utils.data.DataLoader(X_train, batch_size=batch_size)
@@ -147,9 +122,8 @@ if __name__ == "__main__":
             
             # Forward pass
             output = svae.forward(batch)
-            loss = -output["px"].log_prob(batch)
+            loss = -output["px"].log_prob(batch).sum() + sum(output['qz'].k) / 100 #Poor mans kl
             optimizer.zero_grad()
-            
             loss.backward()
             optimizer.step()
 
@@ -162,7 +136,7 @@ if __name__ == "__main__":
             for i, batch in enumerate(validationloader): 
                 # Forward pass
                 output = svae.forward(batch)
-                loss = -output["px"].log_prob(batch)
+                loss = -output["px"].log_prob(batch).sum() +  sum(output['qz'].k) / 100
 
                 epoch_validation_loss[i] = loss.item()
 

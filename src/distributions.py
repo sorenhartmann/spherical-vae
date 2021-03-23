@@ -15,7 +15,6 @@ class SphereUniform(Distribution):
     def __init__(self, dim: int, batch_shape=torch.Size(), validate_args=None):
 
         self.dim = dim
-        self._normal = Normal(0, 1)
         n = dim + 1
 
         log_surface_area = math.log(2) + n / 2 * math.log(math.pi) - math.lgamma(n / 2)
@@ -39,9 +38,10 @@ class SphereUniform(Distribution):
             else torch.Size(sample_shape)
         )
 
-        norm_sample = self._normal.sample(
+        norm_sample = torch.zeros(
             sample_shape + self._batch_shape + self._event_shape
         )
+        norm_sample.normal_()
 
         return norm_sample / norm_sample.norm(dim=-1, keepdim=True)
 
@@ -113,11 +113,12 @@ class VonMisesFisher(Distribution):
             if n_left == 0:
                 break
 
+            # TODO: probably can't train until kl term is there, k is too large 
             a_ = torch.masked_select(a, mask)
             b_ = torch.masked_select(b, mask)
             d_ = torch.masked_select(d, mask)
 
-            epsilon = beta_dist.sample((n_left,))
+            epsilon = beta_dist.rsample((n_left,))
 
             w_proposal = (1 - (1 + b_) * epsilon) / (1 - (1 - b_) * epsilon)
             t = 2 * a_ * b_ / (1 - (1 - b_) * epsilon)
@@ -125,10 +126,13 @@ class VonMisesFisher(Distribution):
             u = torch.rand(n_left)
             accepted = (m - 1) * torch.log(t) - t + d_ >= torch.log(u)
 
-            # Find values of
-            mask[mask.clone()] = accepted
-            w[mask] = w_proposal[accepted]
-            done[mask] = True
+            # Fix for mask inplace stuff with masked_select
+            mask_clone = mask.clone()
+
+            mask_clone[mask] = accepted 
+            w[mask_clone] = w_proposal[accepted]
+            done[mask_clone] = True
+
 
         w = w.view(sample_shape + batch_shape + (1,))
 
