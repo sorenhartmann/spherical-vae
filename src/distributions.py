@@ -12,11 +12,10 @@ class SphereUniform(Distribution):
 
     has_rsample = False
 
-    def __init__(self, dim: int, validate_args=None):
+    def __init__(self, dim: int, batch_shape=torch.Size(), validate_args=None):
 
         self.dim = dim
         self._normal = Normal(0, 1)
-
         n = dim + 1
 
         log_surface_area = math.log(2) + n / 2 * math.log(math.pi) - math.lgamma(n / 2)
@@ -27,14 +26,22 @@ class SphereUniform(Distribution):
         )
 
         super().__init__(
-            torch.Size([dim + 1]),
+            event_shape=torch.Size([dim + 1]),
+            batch_shape=batch_shape,
             validate_args=validate_args,
         )
 
     def sample(self, sample_shape=torch.Size()):
 
-        sample_shape = torch.Size(sample_shape)
-        norm_sample = self._normal.sample(sample_shape + torch.Size([self.dim + 1]))
+        sample_shape = (
+            sample_shape
+            if type(sample_shape) == torch.Size
+            else torch.Size(sample_shape)
+        )
+
+        norm_sample = self._normal.sample(
+            sample_shape + self._batch_shape + self._event_shape
+        )
 
         return norm_sample / norm_sample.norm(dim=-1, keepdim=True)
 
@@ -52,6 +59,9 @@ class VonMisesFisher(Distribution):
 
     def __init__(self, mu: Tensor, k: Tensor, validate_args=None):
 
+        batch_shape = mu.shape[:-1]
+        event_shape = mu.shape[-1:]
+
         self.mu = mu
         self.k = k
         m = torch.tensor(mu.shape[-1])
@@ -60,11 +70,11 @@ class VonMisesFisher(Distribution):
         self._log_2_pi = torch.log(torch.tensor(2 * math.pi))
 
         self.beta_dist = torch.distributions.Beta((m - 1) / 2, (m - 1) / 2)
-        self.uniform_subsphere_dist = SphereUniform(m - 2)
+        self.uniform_subsphere_dist = SphereUniform(m - 2, batch_shape=batch_shape)
 
         super().__init__(
-            batch_shape=torch.Size(self.mu.shape[:-1]),
-            event_shape=torch.Size([self.mu.shape[-1]]),
+            batch_shape=batch_shape,
+            event_shape=event_shape,
             validate_args=validate_args,
         )
 
@@ -95,7 +105,6 @@ class VonMisesFisher(Distribution):
         done = torch.zeros(sample_shape + batch_shape, dtype=bool)
         w = torch.zeros(sample_shape + batch_shape, dtype=torch.float)
 
-        # Proper vectorizing? TODO: 3d sphere special case
         while True:
 
             mask = ~done
@@ -124,7 +133,7 @@ class VonMisesFisher(Distribution):
         w = w.view(sample_shape + batch_shape + (1,))
 
         # Sample from subsphere
-        v = uniform_subsphere_dist.sample(sample_shape + batch_shape)
+        v = uniform_subsphere_dist.sample(sample_shape)
 
         z_prime = torch.cat([w, v * torch.sqrt(1 - w ** 2)], -1)
 
@@ -147,3 +156,12 @@ class VonMisesFisher(Distribution):
         )
 
         return log_C + k * torch.sum(self.mu * value, -1)
+
+
+def vmf_uniform_kl(k, m, include_offset=False):
+    pass
+
+
+
+def d_vmf_uniform_kl(k):
+    pass
