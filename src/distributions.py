@@ -4,6 +4,8 @@ from torch.distributions import Beta, Distribution, Normal, constraints
 import math
 
 from scipy.special import iv
+_log_pi = torch.log(torch.tensor(math.pi))
+_log_2 = torch.log(torch.tensor(2))
 
 
 class SphereUniform(Distribution):
@@ -162,10 +164,36 @@ class VonMisesFisher(Distribution):
         return log_C + k * torch.sum(self.mu * value, -1)
 
 
-def _vmf_uniform_kl(k, m, include_offset=False):
-    pass
+def _vmf_uniform_kl(k, m):
+
+    log_C = (
+    (m / 2 - 1) * torch.log(k)
+    - (m / 2) * (_log_pi + _log_2)
+    - torch.log(iv(m / 2 - 1, k))
+    )
+
+    return k * (iv(m/2, k)/iv(m/2-1, k)) + log_C + m/2 * _log_pi + _log_2 - torch.lgamma(m / 2)
 
 
+def _d_vmf_uniform_kl(k, m):
+    _im_2_1 = iv(m/2-1, k)
+    _im_2 = iv(m/2, k)
+    
+    return 1/2 * k * (
+        (iv(m/2+1, k)/ _im_2_1) 
+        - (_im_2 * (iv(m/2-2, k) + _im_2)) / (_im_2_1**2) 
+        + 1
+        )
 
-def _d_vmf_uniform_kl(k):
-    pass
+class vMFUniformKL(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, k, m):
+        result = _vmf_uniform_kl(k, m)
+        ctx.save_for_backward(result)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        result, = ctx.saved_tensors
+        return grad_output * result, None
