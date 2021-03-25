@@ -93,7 +93,7 @@ if __name__ == "__main__":
     y_val = torch.tensor(y_val, dtype=torch.float)
     
     ## Training loop
-    n_epochs = 100
+    n_epochs = 1000
     batch_size = 16
 
     n_batches_train = int(np.ceil(X_train.shape[0]/batch_size))

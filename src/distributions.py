@@ -162,10 +162,10 @@ class VonMisesFisher(Distribution):
         return log_C + k * torch.sum(self.mu * value, -1)
 
 
-def vmf_uniform_kl(k, m, include_offset=False):
+def _vmf_uniform_kl(k, m, include_offset=False):
     pass
 
 
 
-def d_vmf_uniform_kl(k):
+def _d_vmf_uniform_kl(k):
     pass
