@@ -190,10 +190,18 @@ class vMFUniformKL(torch.autograd.Function):
     @staticmethod
     def forward(ctx, k, m):
         result = _vmf_uniform_kl(k, m)
-        ctx.save_for_backward(result)
+        ctx.save_for_backward(k, m)
         return result
 
     @staticmethod
     def backward(ctx, grad_output):
-        result, = ctx.saved_tensors
-        return grad_output * result, None
+        k, m = ctx.saved_tensors
+        kl_grad = _d_vmf_uniform_kl(k, m)
+        return grad_output * kl_grad, None
+
+vmf_uniform_kl = vMFUniformKL.apply
+
+if __name__ == "__main__":
+    k = torch.tensor([1,200,3,4], dtype = torch.double, requires_grad = True)
+    m = torch.tensor([5, 7, 2, 19])
+    assert(torch.autograd.gradcheck(vmf_uniform_kl, (k, m)))

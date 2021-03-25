@@ -3,7 +3,7 @@ import numpy as np
 from torch.distributions import Distribution, Normal
 from torch.nn import Module, Linear, ReLU, Sequential
 from torch.tensor import Tensor
-from src.distributions import VonMisesFisher, SphereUniform
+from src.distributions import VonMisesFisher, SphereUniform, vmf_uniform_kl
 from sklearn.model_selection import train_test_split
 
 from src.data.genSynthData import genNoisySynthDataS2
@@ -122,7 +122,7 @@ if __name__ == "__main__":
             
             # Forward pass
             output = svae.forward(batch)
-            loss = -output["px"].log_prob(batch).sum() + sum(output['qz'].k) / 100 #Poor mans kl
+            loss = -output["px"].log_prob(batch).sum() + vmf_uniform_kl(output['qz'].k, output['qz'].m).sum() #sum(output['qz'].k) / 100 #Poor mans kl
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -136,7 +136,7 @@ if __name__ == "__main__":
             for i, batch in enumerate(validationloader): 
                 # Forward pass
                 output = svae.forward(batch)
-                loss = -output["px"].log_prob(batch).sum() +  sum(output['qz'].k) / 100
+                loss = -output["px"].log_prob(batch).sum() + vmf_uniform_kl(output['qz'].k, output['qz'].m).sum()
 
                 epoch_validation_loss[i] = loss.item()
 
