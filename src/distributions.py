@@ -1,9 +1,10 @@
 import torch
 from torch import Tensor
 from torch.distributions import Beta, Distribution, Normal, constraints
+from torch.distributions.kl import register_kl
 import math
 
-from scipy.special import iv
+from scipy.special import iv, ive
 _log_pi = torch.log(torch.tensor(math.pi))
 _log_2 = torch.log(torch.tensor(2))
 
@@ -105,7 +106,7 @@ class VonMisesFisher(Distribution):
         uniform_subsphere_dist = self.uniform_subsphere_dist
 
         done = torch.zeros(sample_shape + batch_shape, dtype=bool)
-        w = torch.zeros(sample_shape + batch_shape, dtype=torch.float)
+        w = torch.zeros(sample_shape + batch_shape, dtype=torch.double)
 
         while True:
 
@@ -172,16 +173,17 @@ def _vmf_uniform_kl(k, m):
     - torch.log(iv(m / 2 - 1, k))
     )
 
-    return k * (iv(m/2, k)/iv(m/2-1, k)) + log_C + m/2 * _log_pi + _log_2 - torch.lgamma(m / 2)
+    return k * (ive(m/2, k)/ive(m/2-1, k)) + log_C + m/2 * _log_pi + _log_2 - torch.lgamma(m / 2)
 
 
 def _d_vmf_uniform_kl(k, m):
-    _im_2_1 = iv(m/2-1, k)
-    _im_2 = iv(m/2, k)
+
+    _im_2_1 = ive(m/2-1, k)
+    _im_2 = ive(m/2, k)
     
     return 1/2 * k * (
-        (iv(m/2+1, k)/ _im_2_1) 
-        - (_im_2 * (iv(m/2-2, k) + _im_2)) / (_im_2_1**2) 
+        (ive(m/2+1, k) / _im_2_1) 
+        - (_im_2 * (ive(m/2-2, k) + _im_2)) / (_im_2_1**2) 
         + 1
         )
 
@@ -197,11 +199,16 @@ class vMFUniformKL(torch.autograd.Function):
     def backward(ctx, grad_output):
         k, m = ctx.saved_tensors
         kl_grad = _d_vmf_uniform_kl(k, m)
-        return grad_output * kl_grad, None
+        out = grad_output * kl_grad
+        return out, None
 
-vmf_uniform_kl = vMFUniformKL.apply
+@register_kl(VonMisesFisher, SphereUniform)
+def vmf_uniform_kl(vmf, su):
+    k = vmf.k
+    m = vmf.m
+    return vMFUniformKL.apply(k, m)
 
 if __name__ == "__main__":
     k = torch.tensor([1,200,3,4], dtype = torch.double, requires_grad = True)
     m = torch.tensor([5, 7, 2, 19])
-    assert(torch.autograd.gradcheck(vmf_uniform_kl, (k, m)))
+    assert(torch.autograd.gradcheck(vMFUniformKL.apply, (k, m)))
