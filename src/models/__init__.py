@@ -1,2 +1,2 @@
 from .svae import SphericalVAE
-# from .vae import VariationalAutoencoder
+from .vae import VariationalAutoencoder

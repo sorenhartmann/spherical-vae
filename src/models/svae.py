@@ -1,3 +1,5 @@
+from sklearn.utils import validation
+from src.data import synthetic
 import torch
 import numpy as np
 from torch.distributions import Distribution, Normal
@@ -5,38 +7,28 @@ from torch.distributions.kl import kl_divergence
 from torch.nn import Module, Linear, ReLU, Sequential
 from torch.tensor import Tensor
 from src.distributions import VonMisesFisher, SphereUniform, vmf_uniform_kl
+from src.models.common import Encoder, Decoder
+from torch.utils.data import random_split
+
 from sklearn.model_selection import train_test_split
 
 from src.data.genSynthData import genNoisySynthDataS2
 from plotly import graph_objects as go
 
 import random
+
+
 class SphericalVAE(Module):
 
     def __init__(self, feature_dim, latent_dim):
-        
+
         super().__init__()
 
         self.feature_dim = feature_dim
         self.latent_dim = latent_dim
 
-        self.encoder = Sequential(
-            Linear(in_features=feature_dim, out_features=8),
-            ReLU(),
-            Linear(in_features=8, out_features=32),
-            ReLU(),
-            Linear(in_features=32, out_features=8), 
-            ReLU(),
-            Linear(in_features=8, out_features=latent_dim + 1)
-        )
-
-        self.decoder = Sequential(
-            Linear(in_features=latent_dim, out_features=16),
-            ReLU(),
-            Linear(in_features=16, out_features=32),
-            ReLU(),
-            Linear(in_features=32, out_features=2*self.feature_dim)
-        )
+        self.encoder = Encoder(feature_dim, latent_dim + 1)
+        self.decoder = Decoder(latent_dim, 2 * self.feature_dim)
 
     def posterior(self, x: Tensor) -> Distribution:
         """return the distribution `q(z|x) = vMF(z | \mu(x), \kappa(x))`"""
@@ -48,12 +40,12 @@ class SphericalVAE(Module):
 
         # Return a distribution `q(z|x) = vMF(z | \mu(x), \kappa(x))`
         return VonMisesFisher(mu, log_k.exp())
-    
+
     def prior(self, batch_shape: torch.Size()) -> Distribution:
         """return the distribution `p(z)`"""
         # return the distribution `p(z)`
         return SphereUniform(dim=self.latent_dim, batch_shape=batch_shape)
-    
+
     def observation_model(self, z: Tensor) -> Distribution:
         """return the distribution `p(x|z)`"""
         h_z = self.decoder(z)
@@ -64,70 +56,68 @@ class SphericalVAE(Module):
     def forward(self, x):
         # define the posterior q(z|x) / encode x into q(z|x)
         qz = self.posterior(x)
-    
+
         # define the prior p(z)
         pz = self.prior(batch_shape=x.shape[:-1])
-    
+
         # sample the posterior using the reparameterization trick: z ~ q(z | x)
         z = qz.rsample()
-    
+
         # define the observation model p(x|z) = B(x | g(z))
         px = self.observation_model(z)
-    
-        return {'px': px, 'pz': pz, 'qz': qz, 'z': z}
 
-# %% 
+        return {"px": px, "pz": pz, "qz": qz, "z": z}
+
+
+# %%
 if __name__ == "__main__":
-    
+
     torch.manual_seed(123)
-    random.seed(0)
-    np.random.seed(0)
 
-    # Splitting synthetic data into train and validation 
-    X, y = genNoisySynthDataS2(plotCartesian=False, Nsamples=1000)
+    from src.data import SyntheticS2
 
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size = 0.3, random_state = 62) 
+    synthetic_s2 = SyntheticS2()
 
-    X_train = torch.tensor(X_train, dtype=torch.double)
-    X_val = torch.tensor(X_val, dtype=torch.double)
-    y_train = torch.tensor(y_train, dtype=torch.double)
-    y_val = torch.tensor(y_val, dtype=torch.double)
-    
+    train_size = int(0.8 * len(synthetic_s2))
+    validation_size = len(synthetic_s2) - train_size
+
+    train_dataset, validation_dataset = random_split(
+        synthetic_s2, [train_size, validation_size]
+    )
+
+
     ## Training loop
-    n_epochs = 100
-    batch_size = 16
+    n_epochs = 250
+    batch_size = 32
 
-    n_batches_train = int(np.ceil(X_train.shape[0]/batch_size))
-    n_batches_validation = int(np.ceil(X_val.shape[0]/batch_size))
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
+    validation_loader = torch.utils.data.DataLoader(validation_dataset, batch_size=batch_size)
 
-    epoch_train_loss = [None]*n_batches_train
-    epoch_validation_loss = [None]*n_batches_validation
-    train_loss = [None]*n_epochs
-    validation_loss = [None]*n_epochs
-    
+    epoch_train_loss = [None] * len(train_loader)
+    epoch_validation_loss = [None] * len(validation_loader)
+
+    train_loss = [None] * n_epochs
+    validation_loss = [None] * n_epochs
+
     # Model and optimizer
-    feature_dim = X.shape[-1]
+    feature_dim = synthetic_s2.n_features
     svae = SphericalVAE(feature_dim=feature_dim, latent_dim=3)
     svae.to(torch.double)
 
-    optimizer = torch.optim.Adam(svae.parameters(), lr=1e-3) 
+    optimizer = torch.optim.Adam(svae.parameters(), lr=1e-4)
 
     # with torch.autograd.detect_anomaly():
 
     for epoch in range(n_epochs):
 
-        trainloader = torch.utils.data.DataLoader(X_train, batch_size=batch_size)
-        # trainloader = iter(trainloader)
-        validationloader = torch.utils.data.DataLoader(X_val, batch_size=batch_size)
-        # validationloader = iter(validationloader)
-
         svae.train()
 
-        for i, batch in enumerate(trainloader):
-            
+        for i, batch in enumerate(train_loader):
             # Forward pass
             output = svae.forward(batch)
-            loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(output['qz'], output['pz'])
+            loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
+                output["qz"], output["pz"]
+            )
             loss = loss.mean()
             optimizer.zero_grad()
             loss.backward()
@@ -137,26 +127,27 @@ if __name__ == "__main__":
 
         # Validating model
         svae.eval()
+
         with torch.no_grad():
 
-            for i, batch in enumerate(validationloader): 
+            for i, batch in enumerate(validation_loader):
                 # Forward pass
                 output = svae.forward(batch)
-                loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(output['qz'], output['pz'])
+                loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
+                    output["qz"], output["pz"]
+                )
                 loss = loss.mean()
                 optimizer.zero_grad()
 
                 epoch_validation_loss[i] = loss.item()
 
-        train_loss[epoch] = sum(epoch_train_loss)/len(epoch_train_loss)
-        validation_loss[epoch] = sum(epoch_validation_loss)/len(epoch_validation_loss)
-    
+        train_loss[epoch] = sum(epoch_train_loss) / len(epoch_train_loss)
+        validation_loss[epoch] = sum(epoch_validation_loss) / len(epoch_validation_loss)
 
-        print(f'train loss: {train_loss[epoch]:.4f}')
-        print(f'validation loss: {validation_loss[epoch]:.4f}')      
+        print(f"train loss: {train_loss[epoch]:.4f}")
+        print(f"validation loss: {validation_loss[epoch]:.4f}")
 
-    torch.save(svae.state_dict(), 'models/svae.pt')
+    torch.save(svae.state_dict(), "models/svae.pt")
 
-        
-        
+
 # %%
