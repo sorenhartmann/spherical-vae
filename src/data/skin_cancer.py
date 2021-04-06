@@ -29,7 +29,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
     def __len__(self):
         return self.X.shape[0]
 
-        def __len__(self):
+    def __len__(self):
         return self.X.shape[0]
 
     def __getitem__(self, index):
