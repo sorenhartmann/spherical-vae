@@ -4,6 +4,7 @@ pandas
 matplotlib
 seaborn
 torch
+torchvision
 black
 plotly
 sklearn
