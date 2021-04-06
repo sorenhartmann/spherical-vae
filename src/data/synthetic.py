@@ -141,7 +141,9 @@ class SyntheticS2(torch.utils.data.Dataset):
         self.test = test
 
         file_name = "test.pt" if test else "train.pt"
-        self.file_dir = Path(__file__).parent / ".." / ".." / "data" / "synthetic_s2"
+        self.file_dir = (
+            Path(__file__).parents[2] / "data" / "preprocessed" / "synthetic_s2"
+        )
 
         try:
             data = torch.load(self.file_dir / file_name)
