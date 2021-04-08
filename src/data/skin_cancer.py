@@ -28,7 +28,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
 
         try:
             data = torch.load(self.file_dir / file_name)
-            if data["X"].shape[-2:] != self.image_size:
+            if data["X"].shape[-2:] != torch.Size(self.image_size):
                 data = self._load_raw_data()
         except FileNotFoundError:
             data = self._load_raw_data()

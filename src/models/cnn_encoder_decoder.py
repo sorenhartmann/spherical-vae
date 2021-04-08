@@ -19,9 +19,9 @@ class Encoder(Module):
         conv1_height = compute_conv_dim(height, conv_1_kernel_size, conv_1_pad, conv_1_stride)
         conv1_width = compute_conv_dim(width, conv_1_kernel_size, conv_1_pad, conv_1_stride)
 
-        conv_2_out_channels =  49 
+        conv_2_out_channels =  3 
         conv_2_kernel_size = 11 
-        conv_2_stride = 2 
+        conv_2_stride = 4 
         conv_2_pad    = 3 
 
         conv2_height = compute_conv_dim(conv1_height, conv_2_kernel_size, conv_2_pad, conv_2_stride)
@@ -106,3 +106,13 @@ class Decoder(Module):
     def forward(self, x):
         
         return self.ffnn(x)
+
+
+if __name__ == "__main__":
+    from src.data import SkinCancerDataset
+    data = SkinCancerDataset()
+    image_size = data.X.shape[1:]
+
+    net = Encoder(image_size, out_features = 4)
+
+    net(data.X[0:10,:,:,:])
