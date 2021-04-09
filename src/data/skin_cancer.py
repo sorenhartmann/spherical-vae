@@ -15,7 +15,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
         if image_size is None:
             self.image_size = self.ham_shape[-2:]
         else:
-            self.image_size = image_size
+            self.image_size = torch.Size(image_size)
 
         self.test = test
 
@@ -28,7 +28,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
 
         try:
             data = torch.load(self.file_dir / file_name)
-            if data["X"].shape[-2:] != torch.Size(self.image_size):
+            if data["X"].shape[-2:] != self.image_size:
                 data = self._load_raw_data()
         except FileNotFoundError:
             data = self._load_raw_data()
@@ -54,6 +54,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
 
         n_samples = int(len(ham_list)*self.subsample)
         ham_samples = random.sample(ham_list, k = n_samples) 
+        #TODO: vi sætter ikke et seed?
 
         X = torch.zeros([n_samples] + [3] + self.image_size)
 

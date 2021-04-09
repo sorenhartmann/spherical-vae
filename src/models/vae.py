@@ -1,21 +1,14 @@
 # To add a new cell, type '# %%'
 # To add a new markdown cell, type '# %% [markdown]'
 # %%
-import math
 from src.models.common import Decoder, Encoder
 import numpy as np
-import pandas as pd
 import torch
 from typing import *
 from torch import nn, Tensor
-from torch.nn.functional import softplus
 from torch.distributions import Distribution, Normal
-import random
+
 from torch.utils.data import random_split
-
-from sklearn.model_selection import train_test_split
-
-from src.data.genSynthData import genNoisySynthDataS2
 
 class VariationalAutoencoder(nn.Module):
     """A Variational Autoencoder with

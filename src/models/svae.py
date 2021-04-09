@@ -1,22 +1,11 @@
-from sklearn.utils import validation
-from src.data import synthetic
 import torch
-import numpy as np
 from torch.distributions import Distribution, Normal
 from torch.distributions.kl import kl_divergence
-from torch.nn import Module, Linear, ReLU, Sequential
+from torch.nn import Module
 from torch.tensor import Tensor
-from src.distributions import VonMisesFisher, SphereUniform, vmf_uniform_kl
+from src.distributions import VonMisesFisher, SphereUniform, 
 from src.models.common import Encoder, Decoder
 from torch.utils.data import random_split
-
-from sklearn.model_selection import train_test_split
-
-from src.data.genSynthData import genNoisySynthDataS2
-from plotly import graph_objects as go
-
-import random
-
 
 class SphericalVAE(Module):
 
