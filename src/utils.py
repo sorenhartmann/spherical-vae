@@ -1,7 +1,6 @@
 import plotly.graph_objects as go
 
-
-def plot_3d(x, y, z, classes, fig=None, row=None, col=None):
+def plot_3d(x, y, z, classes=None, fig=None, row=None, col=None):
 
     if fig is None:
         fig = go.Figure()
@@ -11,3 +10,5 @@ def plot_3d(x, y, z, classes, fig=None, row=None, col=None):
         row=row,
         col=col
     )
+
+    return fig

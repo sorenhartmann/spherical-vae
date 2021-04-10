@@ -52,7 +52,7 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
             data = self._load_raw_data()
 
         self.X = data["X"]
-        self.image_files = data["labels"]
+        self.labels = data["labels"]
 
 
     def _download_raw_data(self):
@@ -136,7 +136,7 @@ def process_amc(file_contents: io.BytesIO):
             group[0].str.split(" ", n=1, expand=True)[1].str.split(" ").explode().values
         )
 
-    data = pd.DataFrame.from_records(observations, columns=field_names)
+    data = pd.DataFrame.from_records(observations, columns=field_names,)
     return data.astype(float)
 
 
