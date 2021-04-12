@@ -10,6 +10,7 @@ from tqdm import tqdm
 import zipfile
 import pandas as pd
 from sklearn.model_selection import train_test_split
+from src.data.utils import ZippedData
 
 root_dir = Path(__file__).parents[2]
 raw_dir = root_dir / "data" / "raw"
@@ -25,7 +26,6 @@ def _hook(t):
         last_b[0] = b
 
     return update_to
-
 
 class MotionCaptureDataset(torch.utils.data.Dataset):
 
@@ -69,17 +69,14 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
             print("Raw data not found, downloading data set...")
             self._download_raw_data()
 
+        zipped_data = ZippedData(self.raw_file)
+        subject_dir = f"all_asfamc/subjects/{self.subject}"
         trial_data = {}
-        with zipfile.ZipFile(self.raw_file) as zf:
-            subject_dir = rf"all_asfamc/subjects/{self.subject}/"
-            files = [f for f in zf.filelist if f.filename.startswith(subject_dir)]
-            files.sort(key=lambda x: x.filename)
-            for file_ in files:
-                if file_.filename.endswith(".amc"):
-                    with zf.open(file_) as f:
-                        data = process_amc(io.BytesIO(f.read()))
-                        trial_name = file_.filename[len(subject_dir) : -4]
-                        trial_data[trial_name] = data
+
+        for file_name, buffer in zipped_data.iter_files(subject_dir, ext=".amc"):
+            data = process_amc(buffer)
+            trial_name = file_name[len(subject_dir)+1:-4]
+            trial_data[trial_name] = data
 
         labels = [
             f"{trial_name}:{i+1}"
@@ -112,34 +109,45 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         data = test if self.test else train
         return data
 
-
 def process_amc(file_contents: io.BytesIO):
-
-    raw = pd.read_csv(file_contents, header=None)
-    is_numeric = raw[0].str.isnumeric()
-    indices = raw[0].loc[is_numeric]
-
-    raw.loc[is_numeric, "index"] = indices.astype(float)
-    raw["index"] = raw["index"].ffill()
-
-    first_observations = raw.loc[raw["index"] == 1].iloc[1:]
-    field_names = [
-        f"{obs[0]}:{i}"
-        for obs in first_observations[0].str.split(" ")
-        for i in range(len(obs) - 1)
-    ]
+    
+    for initial_line in file_contents:
+        initial_line = initial_line.strip()
+        if initial_line.strip().isnumeric():
+            break
 
     observations = []
-    for i, group in raw[~is_numeric].groupby("index", group_keys=False):
-        # And now, for the tricky bit
-        observations.append(
-            group[0].str.split(" ", n=1, expand=True)[1].str.split(" ").explode().values
-        )
+    field_names = []
+
+    # Read first observation
+    observation = []
+    for line in file_contents: 
+        if not line.strip().isnumeric():
+            name, *values = line.split(' ')
+            observation.extend(float(x) for x in values)
+            field_names.extend(f"{name}:{i}" for i in range(len(values)))
+        else:
+            observations.append(observation)
+            observation = []
+            break
+
+    # Read remaining lines 
+    for line in file_contents: 
+        if not line.strip().isnumeric():
+            name, *values = line.split(' ')
+            observation.extend(float(x) for x in values)
+        else:
+            observations.append(observation)
+            observation = []
+
+    # Save final line
+    if len(observation) > 0:
+        observations.append(observation)
 
     data = pd.DataFrame.from_records(observations, columns=field_names,)
-    return data.astype(float)
-
+    return data
 
 if __name__ == "__main__":
 
     tmp = MotionCaptureDataset(subject="07")
+
