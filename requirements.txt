@@ -8,4 +8,5 @@ torchvision
 black
 plotly
 sklearn
+pygtrie
 -e .
