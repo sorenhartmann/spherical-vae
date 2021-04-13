@@ -6,7 +6,8 @@ import numpy as np
 import torch
 from typing import *
 from torch import nn, Tensor
-from torch.distributions import Distribution, Normal
+from torch.distributions import Distribution, Normal, Independent
+from torch.distributions.kl import kl_divergence
 
 from torch.utils.data import random_split
 
@@ -48,13 +49,13 @@ class VariationalAutoencoder(nn.Module):
         prior_params = self.prior_params.expand(batch_size, *self.prior_params.shape[-1:])
         mu, log_sigma = prior_params.chunk(2, dim=-1)
 
-        # return the distribution `p(z)`
+        # return the distribution `p(z)` 
         return Normal(mu, log_sigma.exp())
     
     def observation_model(self, z: Tensor) -> Distribution:
         """return the distribution `p(x|z)`"""
         h_z = self.decoder(z)
-        mu, log_sigma = h_z.data.chunk(2, dim=-1)
+        mu, log_sigma = h_z.chunk(2, dim=-1)
 
         return Normal(mu, log_sigma.exp())
 
@@ -73,64 +74,24 @@ class VariationalAutoencoder(nn.Module):
     
         return {'px': px, 'pz': pz, 'qz': qz, 'z': z}
 
-
-def reduce(x:Tensor) -> Tensor:
-    """for each datapoint: sum over all dimensions"""
-    return x.view(x.size(0), -1).sum(dim=1)
-
-class VariationalInference(nn.Module):
-    def __init__(self, beta:float=1.):
-        super().__init__()
-        self.beta = beta
-        
-    def forward(self, model:nn.Module, x:Tensor) -> Tuple[Tensor, Dict]:
-        
-        # forward pass through the model
-        outputs = model(x)
-        
-        # unpack outputs
-        px, pz, qz, z = [outputs[k] for k in ["px", "pz", "qz", "z"]]
-        
-        # evaluate log probabilities
-        log_px = reduce(px.log_prob(x))
-        log_pz = reduce(pz.log_prob(z))
-        log_qz = reduce(qz.log_prob(z))
-        
-        # compute the ELBO with and without the beta parameter: 
-        # `L^\beta = E_q [ log p(x|z) - \beta * D_KL(q(z|x) | p(z))`
-        # where `D_KL(q(z|x) | p(z)) = log q(z|x) - log p(z)`
-        kl = log_qz - log_pz
-        elbo = log_px - kl # <- your code here
-        beta_elbo = log_px - self.beta * kl # <- your code here
-        
-        # loss
-        loss = -beta_elbo.mean()
-        
-        # prepare the output
-        with torch.no_grad():
-            diagnostics = {'elbo': elbo, 'log_px':log_px, 'kl': kl}
-            
-        return loss, diagnostics, outputs
-
-
 if __name__ == "__main__":
     
     torch.manual_seed(123)
 
-    from src.data import SyntheticS2
+    from src.data.synthetic import SyntheticS2
 
-    synthetic_s2 = SyntheticS2()
+    dataset = SyntheticS2()
 
-    train_size = int(0.8 * len(synthetic_s2))
-    validation_size = len(synthetic_s2) - train_size
+    train_size = int(0.8 * len(dataset))
+    validation_size = len(dataset) - train_size
 
     train_dataset, validation_dataset = random_split(
-        synthetic_s2, [train_size, validation_size]
+        dataset, [train_size, validation_size]
     )
 
     ## Training loop
-    n_epochs = 250
-    batch_size = 32
+    n_epochs = 100
+    batch_size = 16
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
     validation_loader = torch.utils.data.DataLoader(validation_dataset, batch_size=batch_size)
@@ -142,24 +103,26 @@ if __name__ == "__main__":
     validation_loss = [None] * n_epochs
     
     # Model and optimizer
-    feature_dim = synthetic_s2.n_features
+    feature_dim = dataset.n_features
     vae = VariationalAutoencoder(feature_dim, 3)
     vae.to(torch.double)
 
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3) 
-    vi = VariationalInference()
 
     for epoch in range(n_epochs):
 
         vae.train()
-
         for i, batch in enumerate(train_loader):
             
             # Forward pass
-            loss, diagnostics, outputs = vi(vae, batch)
-
-            ### Additional code for sampled kl?
+            output = vae(batch)
+            px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+            kl = kl_divergence(Independent(qz, 1),  Independent(pz, 1))
+            loss = -px.log_prob(batch).sum(-1) + kl
+            loss = loss.mean()
             optimizer.zero_grad()
+            # loss, diagnostics, outputs = vi(vae, batch)
+            ### Additional code for sampled kl?
             loss.backward()
             optimizer.step()
 
@@ -172,7 +135,6 @@ if __name__ == "__main__":
             for i, batch in enumerate(validation_loader): 
                 # Forward pass
                 loss, diagnostics, outputs = vi(vae, batch)
-                optimizer.zero_grad()
 
                 epoch_validation_loss[i] = loss.item()
 

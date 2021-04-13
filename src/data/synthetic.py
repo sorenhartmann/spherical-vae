@@ -10,17 +10,17 @@ from pathlib import Path
 def gen_noisy_synth_data_s1(nsamples=100, nclasses=3, new_dim=20):
 
     # getting synhetic s1 data
-    coords, target = gen_synth_data_s1(nsamples, nclasses, plot_cartesian)
+    coords, target = gen_synth_data_s1(nsamples, nclasses)
 
     # multiplicative and additive random noise
     noisy_coords = coords @ np.random.normal(
         size=(np.shape(coords)[1], new_dim)
     ) + np.random.normal(size=(np.shape(coords)[0], new_dim))
 
-    return (noisy_coords, target)
+    return (coords, noisy_coords, target)
 
 
-def gen_synth_data_s1(nsamples=100, nclasses=3, plot_cartesian=True):
+def gen_synth_data_s1(nsamples=100, nclasses=3):
     """
     a function creating synthetic data on s1
     input: @nsamples: the number of samples in each class, integer
@@ -53,18 +53,6 @@ def gen_synth_data_s1(nsamples=100, nclasses=3, plot_cartesian=True):
 
     coords = samples_cartesian[:, 0:2]
     target = samples_cartesian[:, 2]
-
-    if plot_cartesian:
-        # plotting samples
-        plt.figure(figsize=(5, 5))
-        plt.xlim(-1.1, 1.1)
-        plt.ylim(-1.1, 1.1)
-        plt.scatter(
-            x=samples_cartesian[:, 0],
-            y=samples_cartesian[:, 1],
-            c=samples_cartesian[:, 2],
-            cmap="tab10",
-        )
 
     return (coords, target)
 
@@ -114,7 +102,6 @@ def gen_synth_data_s2(nclasses=3, nsamples=200):
 
     return coords, target
 
-
 def gen_noisy_synth_data_s2(nsamples=200, nclasses=3, new_dim=50):
 
     # getting synhetic s1 data
@@ -126,6 +113,83 @@ def gen_noisy_synth_data_s2(nsamples=200, nclasses=3, new_dim=50):
     ) + np.random.normal(size=(np.shape(coords)[0], new_dim))
 
     return (coords, noisy_coords, target)
+
+
+class SyntheticS1(torch.utils.data.Dataset):
+
+    n_test = 500
+    n_train = 1000
+    n_classes = 3
+    n_features = 50
+    seed = 60220
+
+    def __init__(self, test=False):
+
+        self.test = test
+
+        file_name = "test.pt" if test else "train.pt"
+        self.file_dir = (
+            Path(__file__).parents[2] / "data" / "preprocessed" / "synthetic_s1"
+        )
+
+        try:
+            data = torch.load(self.file_dir / file_name)
+        except FileNotFoundError:
+            data = self._generate_data()
+
+        self.X_latent = data["X_latent"]
+        self.X = data["X"]
+        self.y = data["y"]
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, index):
+        return self.X[index, :]
+
+    def _generate_data(self):
+
+        np.random.seed(self.seed)
+
+        X_latent, X, y = gen_noisy_synth_data_s1(
+            (self.n_test + self.n_train) // self.n_classes,
+            self.n_classes,
+            self.n_features,
+        )
+        X_latent = torch.tensor(X_latent, dtype=torch.double)
+        X = torch.tensor(X, dtype=torch.double)
+        y = torch.tensor(y, dtype=torch.double)
+
+        (
+            X_latent_train,
+            X_latent_test,
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+        ) = train_test_split(X_latent, X, y, train_size=self.n_train)
+
+        train = {
+            "X_latent": X_latent_train,
+            "X": X_train,
+            "y": y_train,
+        }
+
+        test = {
+            "X_latent": X_latent_test,
+            "X": X_test,
+            "y": y_test,
+        }
+
+        if not self.file_dir.exists():
+            self.file_dir.mkdir()
+
+        torch.save(train, self.file_dir / "train.pt")
+        torch.save(test, self.file_dir / "test.pt")
+
+        data = test if self.test else train
+        return data
+
 
 
 class SyntheticS2(torch.utils.data.Dataset):

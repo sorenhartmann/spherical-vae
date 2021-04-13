@@ -3,7 +3,7 @@ from torch.distributions import Distribution, Normal
 from torch.distributions.kl import kl_divergence
 from torch.nn import Module
 from torch.tensor import Tensor
-from src.distributions import VonMisesFisher, SphereUniform, 
+from src.distributions import VonMisesFisher, SphereUniform
 from src.models.common import Encoder, Decoder
 from torch.utils.data import random_split
 
@@ -58,7 +58,6 @@ class SphericalVAE(Module):
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
 
-# %%
 if __name__ == "__main__":
 
     torch.manual_seed(123)
@@ -76,8 +75,8 @@ if __name__ == "__main__":
 
 
     ## Training loop
-    n_epochs = 250
-    batch_size = 32
+    n_epochs = 100
+    batch_size = 16
 
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
     validation_loader = torch.utils.data.DataLoader(validation_dataset, batch_size=batch_size)
@@ -103,7 +102,7 @@ if __name__ == "__main__":
 
         for i, batch in enumerate(train_loader):
             # Forward pass
-            output = svae.forward(batch)
+            output = svae(batch)
             loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
                 output["qz"], output["pz"]
             )
@@ -121,12 +120,11 @@ if __name__ == "__main__":
 
             for i, batch in enumerate(validation_loader):
                 # Forward pass
-                output = svae.forward(batch)
+                output = svae(batch)
                 loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
                     output["qz"], output["pz"]
                 )
                 loss = loss.mean()
-                optimizer.zero_grad()
 
                 epoch_validation_loss[i] = loss.item()
 
