@@ -91,17 +91,9 @@ class Encoder(Module):
 
 class Decoder(Module):
 
-    def __init__(self, linear_in_features, out_features):
+    def __init__(self, in_features, out_features):
 
         super().__init__()
-
-        self.ffnn = Sequential(
-            Linear(in_features=, out_features=100),
-            ReLU(),
-            Linear(in_features=100, out_features=100),
-            ReLU(),
-            Linear(in_features=100, out_features=out_features)
-        )
 
         channels, height, width = image_size
 
@@ -129,7 +121,15 @@ class Decoder(Module):
         maxPool_height = compute_conv_dim(conv2_height, maxPool_kernel, 0, maxPool_stride)
         maxPool_width = compute_conv_dim(conv2_width, maxPool_kernel, 0, maxPool_stride)
 
-        self.linear_in_features = conv_2_out_channels*maxPool_height*maxPool_width   
+        self.linear_out_features = conv_2_out_channels*maxPool_height*maxPool_width  
+
+        self.ffnn = Sequential(
+            Linear(in_features=in_features, out_features=100),
+            ReLU(),
+            Linear(in_features=100, out_features=100),
+            ReLU(),
+            Linear(in_features=100, out_features=self.linear_out_features)
+        ) 
 
         self.CNN = Sequential(
             #--------------------------
@@ -147,30 +147,15 @@ class Decoder(Module):
             ReLU(),
 
             # --------------------------
-            # Second convolutional layer 
-            Conv2d(
-                in_channels=conv_1_out_channels,
-                out_channels=conv_2_out_channels,
-                kernel_size=conv_2_kernel_size,
-                stride=conv_2_stride,
-                padding=conv_2_pad),
-            # Batch Normalization 
-            BatchNorm2d(conv_2_out_channels),
-            Dropout2d(p = 0.5),
-            # Activation function 
-            ReLU(),
-
-            #----------------------------
-            # Max Pooling 
-            MaxPool2d(
-                kernel_size = maxPool_kernel,
-                stride = maxPool_stride
-            )
         )
 
     def forward(self, x):
         
-        return self.ffnn(x)
+        x = self.ffnn(x)
+        print(x.shape)
+        x = self.CNN(x.view(x.shape[0], conv_2_out_channels, maxPool_height, maxPool_width))
+
+        return x
 
 
 if __name__ == "__main__":
@@ -179,5 +164,6 @@ if __name__ == "__main__":
     image_size = data.X.shape[1:]
 
     net = Encoder(image_size, out_features = 4)
+    hej = Decoder(4, image_size)
 
-    net(data.X[0:10,:,:,:])
+    hej(net(data.X[0:10,:,:,:]))
