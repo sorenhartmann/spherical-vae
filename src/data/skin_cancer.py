@@ -4,6 +4,7 @@ import random
 import matplotlib.pyplot as plt
 from pathlib import Path
 from torchvision.transforms.functional import resize
+from tqdm import tqdm
 
 
 class SkinCancerDataset(torch.utils.data.Dataset):
@@ -56,9 +57,9 @@ class SkinCancerDataset(torch.utils.data.Dataset):
         ham_samples = random.sample(ham_list, k = n_samples) 
         #TODO: vi sætter ikke et seed?
 
-        X = torch.zeros([n_samples] + [3] + self.image_size)
+        X = torch.zeros((n_samples,) + (3,) + self.image_size)
 
-        for i, imagefile in enumerate(ham_samples):
+        for i, imagefile in tqdm(enumerate(ham_samples), total=n_samples):
             if imagefile.suffix != ".jpg":
                 continue
             image = torchvision.io.read_image(str(imagefile))
@@ -74,12 +75,12 @@ class SkinCancerDataset(torch.utils.data.Dataset):
         image_files_test = ham_samples[n_train:]
 
         train = {
-            "X": X_train,
+            "X": X_train.clone(),
             "image_files": image_files_train,
         }
 
         test = {
-            "X": X_test,
+            "X": X_test.clone(),
             "image_files": image_files_test,
         }
 
@@ -97,4 +98,4 @@ if __name__ == "__main__":
     tmp = SkinCancerDataset(image_size=[225, 300])
     
     plt.figure(figsize=(8, 8))
-    plt.imshow(image, cmap='gray')
+    # plt.imshow(image, cmap='gray')
