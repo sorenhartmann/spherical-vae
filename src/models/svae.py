@@ -1,14 +1,15 @@
+from src.data.synthetic import SyntheticS2
 import torch
 from torch.distributions import Distribution, Normal
 from torch.distributions.kl import kl_divergence
 from torch.nn import Module
 from torch.tensor import Tensor
 from src.distributions import VonMisesFisher, SphereUniform
-from src.models.common import Encoder, Decoder
+from src.models.common import Encoder, Decoder, train_model
 from torch.utils.data import random_split
 
-class SphericalVAE(Module):
 
+class SphericalVAE(Module):
     def __init__(self, feature_dim, latent_dim):
 
         super().__init__()
@@ -57,84 +58,19 @@ class SphericalVAE(Module):
 
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
+    def get_loss(self, batch):
+
+        output = self(batch)
+        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        loss = -px.log_prob(batch).sum(-1) + kl_divergence(qz, pz)
+        return loss.mean()
+
 
 if __name__ == "__main__":
 
-    torch.manual_seed(123)
-
-    from src.data import SyntheticS2
-
     synthetic_s2 = SyntheticS2()
-
-    train_size = int(0.8 * len(synthetic_s2))
-    validation_size = len(synthetic_s2) - train_size
-
-    train_dataset, validation_dataset = random_split(
-        synthetic_s2, [train_size, validation_size]
-    )
-
-
-    ## Training loop
-    n_epochs = 100
-    batch_size = 16
-
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-    validation_loader = torch.utils.data.DataLoader(validation_dataset, batch_size=batch_size)
-
-    epoch_train_loss = [None] * len(train_loader)
-    epoch_validation_loss = [None] * len(validation_loader)
-
-    train_loss = [None] * n_epochs
-    validation_loss = [None] * n_epochs
-
-    # Model and optimizer
-    feature_dim = synthetic_s2.n_features
-    svae = SphericalVAE(feature_dim=feature_dim, latent_dim=3)
+    svae = SphericalVAE(synthetic_s2.n_features, 3)
     svae.to(torch.double)
-
-    optimizer = torch.optim.Adam(svae.parameters(), lr=1e-4)
-
-    # with torch.autograd.detect_anomaly():
-
-    for epoch in range(n_epochs):
-
-        svae.train()
-
-        for i, batch in enumerate(train_loader):
-            # Forward pass
-            output = svae(batch)
-            loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
-                output["qz"], output["pz"]
-            )
-            loss = loss.mean()
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            epoch_train_loss[i] = loss.item()
-
-        # Validating model
-        svae.eval()
-
-        with torch.no_grad():
-
-            for i, batch in enumerate(validation_loader):
-                # Forward pass
-                output = svae(batch)
-                loss = -output["px"].log_prob(batch).sum(-1) + kl_divergence(
-                    output["qz"], output["pz"]
-                )
-                loss = loss.mean()
-
-                epoch_validation_loss[i] = loss.item()
-
-        train_loss[epoch] = sum(epoch_train_loss) / len(epoch_train_loss)
-        validation_loss[epoch] = sum(epoch_validation_loss) / len(epoch_validation_loss)
-
-        print(f"train loss: {train_loss[epoch]:.4f}")
-        print(f"validation loss: {validation_loss[epoch]:.4f}")
-
-    torch.save(svae.state_dict(), "models/svae.pt")
-
+    train_model(svae, synthetic_s2, checkpoint_path="models/synthetic/svae.pt")
 
 # %%
