@@ -159,7 +159,7 @@ class VonMisesFisher(Distribution):
         log_C = (
             (m / 2 - 1) * torch.log(k)
             - (m / 2) * self._log_2_pi
-            - torch.log(iv(m / 2 - 1, k))
+            - torch.log(ive(m / 2 - 1, k)) - k
         )
 
         return log_C + k * torch.sum(self.mu * value, -1)
@@ -170,7 +170,7 @@ def _vmf_uniform_kl(k, m):
     log_C = (
     (m / 2 - 1) * torch.log(k)
     - (m / 2) * (_log_pi + _log_2)
-    - torch.log(iv(m / 2 - 1, k))
+    - torch.log(ive(m / 2 - 1, k)) - k
     )
 
     return k * (ive(m/2, k)/ive(m/2-1, k)) + log_C + m/2 * _log_pi + _log_2 - torch.lgamma(m / 2)
