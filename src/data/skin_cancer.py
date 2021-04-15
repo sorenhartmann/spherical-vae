@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 class SkinCancerDataset(torch.utils.data.Dataset):
 
-    ham_shape = [3, 450, 600]
+    ham_shape = (3, 450, 600)
     train_perc = 0.7
 
     def __init__(self, subsample=0.1, test=False, image_size=None):
