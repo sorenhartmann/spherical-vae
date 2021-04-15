@@ -116,7 +116,9 @@ class Decoder(Module):
         conv_2_pad    = 3 
 
         conv2_height = compute_conv_dim(conv1_height, conv_2_kernel_size, conv_2_pad, conv_2_stride)
+        print(conv2_height)
         conv2_width = compute_conv_dim(conv1_width, conv_2_kernel_size, conv_2_pad, conv_2_stride)
+        print(conv2_width)
 
         self.ffnn = Sequential(
             Linear(in_features=in_features, out_features=100),
@@ -156,9 +158,9 @@ class Decoder(Module):
 
             ConvTranspose2d(in_channels=conv_2_out_channels, 
                             out_channels = 3,
-                            kernel_size=7,
-                            stride = 1,
-                            padding = 5)
+                            kernel_size=(135, 170),
+                            stride = 20,
+                            padding = 15)
         )
 
     def forward(self, x):
