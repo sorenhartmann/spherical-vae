@@ -56,7 +56,7 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         self.n_features = self.X.shape[-1]
 
     def to(self, device):
-        self.X.to(device)
+        self.X = self.X.to(device)
 
     def _download_raw_data(self):
 

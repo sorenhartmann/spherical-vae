@@ -34,7 +34,7 @@ class SphereUniform(Distribution):
             -log_surface_area
             if type(log_surface_area) == torch.Tensor
             else -torch.tensor(log_surface_area)
-        )
+        ).to(device)
 
         super().__init__(
             event_shape=torch.Size([dim + 1]),
@@ -50,7 +50,7 @@ class SphereUniform(Distribution):
             else torch.Size(sample_shape)
         )
 
-        norm_sample = torch.zeros(sample_shape + self._batch_shape + self._event_shape)
+        norm_sample = torch.zeros(sample_shape + self._batch_shape + self._event_shape, device=device)
         norm_sample.normal_()
 
         return norm_sample / norm_sample.norm(dim=-1, keepdim=True)
@@ -74,7 +74,7 @@ class VonMisesFisher(Distribution):
 
         self.mu = mu
         self.k = k
-        m = torch.tensor(mu.shape[-1])
+        m = torch.tensor(mu.shape[-1], device=device)
         self.m = m
 
         self._log_2_pi = torch.log(torch.tensor(2 * math.pi))
@@ -107,17 +107,17 @@ class VonMisesFisher(Distribution):
         if (b == 0).any():
             raise ModelParameterError("Infinite loop in sampling, (b=0)")
 
-        e = torch.tensor([1] + [0] * (m - 1))
+        e = torch.tensor([1] + [0] * (m - 1), device=device)
         u_prime = e - mu
         u = u_prime / u_prime.norm(dim=-1, keepdim=True)
-        U = torch.eye(m) - 2 * u.view(-1, m, 1) @ u.view(-1, 1, m)
+        U = torch.eye(m, device=device) - 2 * u.view(-1, m, 1) @ u.view(-1, 1, m)
 
         beta_dist = self.beta_dist
         uniform_subsphere_dist = self.uniform_subsphere_dist
 
-        done = torch.zeros(sample_shape + batch_shape, dtype=bool)
+        done = torch.zeros(sample_shape + batch_shape, dtype=bool, device=device)
         w = torch.zeros(
-            sample_shape + batch_shape, dtype=torch.double
+            sample_shape + batch_shape, dtype=torch.double, device=device
         )  # Can currently enter infinite loop if not double
 
         while True:
@@ -135,10 +135,11 @@ class VonMisesFisher(Distribution):
 
             epsilon = beta_dist.rsample((n_left,))
 
+
             w_proposal = (1 - (1 + b_) * epsilon) / (1 - (1 - b_) * epsilon)
             t = 2 * a_ * b_ / (1 - (1 - b_) * epsilon)
 
-            u = torch.rand(n_left)
+            u = torch.rand(n_left, device=device)
             accepted = (m - 1) * torch.log(t) - t + d_ >= torch.log(u)
 
             # Fix for mask inplace stuff with masked_select
@@ -182,23 +183,23 @@ class vMFUniformKL(torch.autograd.Function):
     def forward(ctx, k: Tensor, m: Tensor):
 
         if device == torch.device("cpu"):
-            k_cpu = k
-            m_cpu = m
-            _im_2_minus_1 = ive(m_cpu / 2 - 1, k_cpu)
-            _im_2_minus_2 = ive(m_cpu / 2 - 2, k_cpu)
-            _im_2_plus_1 = ive(m_cpu / 2 + 1, k_cpu)
-            _im_2 = ive(m_cpu / 2, k_cpu)
+            _im_2_minus_1 = ive(m / 2 - 1, k)
+            _im_2_minus_2 = ive(m / 2 - 2, k)
+            _im_2_plus_1 = ive(m / 2 + 1, k)
+            _im_2 = ive(m / 2, k)
         else:
-            k_cpu = torch.tensor(k, device=torch.device("cpu"))
-            m_cpu = torch.tensor(m, device=torch.device("cpu"))
+            k_cpu = k.cpu()
+            m_cpu = m.cpu()
+            # k_cpu.to(device)
+            # m_cpu.to(device)
             _im_2_minus_1 = ive(m_cpu / 2 - 1, k_cpu)
             _im_2_minus_2 = ive(m_cpu / 2 - 2, k_cpu)
             _im_2_plus_1 = ive(m_cpu / 2 + 1, k_cpu)
             _im_2 = ive(m_cpu / 2, k_cpu)
-            _im_2_minus_1.to(device)
-            _im_2_minus_2.to(device)
-            _im_2_plus_1.to(device)
-            _im_2.to(device)
+            _im_2_minus_1 = _im_2_minus_1.to(device)
+            _im_2_minus_2 = _im_2_minus_2.to(device)
+            _im_2_plus_1 = _im_2_plus_1.to(device)
+            _im_2 = _im_2.to(device)
 
         log_C = (
             (m / 2 - 1) * torch.log(k)

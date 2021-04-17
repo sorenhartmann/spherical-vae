@@ -73,8 +73,8 @@ def get_objective(model_type, data_type):
             model,
             dataset,
             label=f"{data_type}_{model_type}",
-            n_epochs=1500,
-            batch_size=8,
+            n_epochs=50,
+            batch_size=16,
             lr=lr,
             trial=trial,
             progress_bar=False
@@ -108,9 +108,11 @@ def main(model, data, seed):
         load_if_exists=True,
         )
     objective = get_objective(model, data)
-    study.optimize(objective, n_trials=50, catch=(ModelParameterError,))
-
+    study.optimize(objective, n_trials=10, catch=(ModelParameterError,))
 
 if __name__ == "__main__":
 
+    import time
+    t = time.time()
     main()
+    print(time.time() - t)
