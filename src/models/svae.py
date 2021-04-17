@@ -8,7 +8,6 @@ from src.distributions import VonMisesFisher, SphereUniform
 from torch.utils.data import random_split
 
 
-
 class SphericalVAE(Module):
 
     def __init__(
