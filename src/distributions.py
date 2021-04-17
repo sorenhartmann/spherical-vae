@@ -1,3 +1,4 @@
+from src.models.common import ModelParameterError
 import torch
 from torch import Tensor
 from torch.distributions import Beta, Distribution, Normal, constraints
@@ -97,6 +98,9 @@ class VonMisesFisher(Distribution):
         a = ((m - 1) + 2 * k + torch.sqrt(4 * k ** 2 + (m - 1) ** 2)) / 4
         d = (4 * a * b) / (1 + b) - (m - 1) * torch.log(m - 1)
 
+        if (b == 0).any():
+            raise ModelParameterError( "Infinite loop in sampling, (b=0)")
+
         e = torch.tensor([1] + [0] * (m - 1))
         u_prime = e - mu
         u = u_prime / u_prime.norm(dim=-1, keepdim=True)
@@ -106,7 +110,7 @@ class VonMisesFisher(Distribution):
         uniform_subsphere_dist = self.uniform_subsphere_dist
 
         done = torch.zeros(sample_shape + batch_shape, dtype=bool)
-        w = torch.zeros(sample_shape + batch_shape, dtype=torch.double)
+        w = torch.zeros(sample_shape + batch_shape, dtype=torch.double) # Can currently enter infinite loop if not double
 
         while True:
 
