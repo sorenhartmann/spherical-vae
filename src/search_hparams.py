@@ -6,6 +6,13 @@ from src.models.svae import SphericalVAE
 import click
 from src.data import SyntheticS2, SkinCancerDataset, MotionCaptureDataset
 import optuna
+import torch
+
+cuda = torch.cuda.is_available()
+if cuda:
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
 
 hparam_search_space = {
     "n_layers" : (1, 5),
@@ -48,6 +55,7 @@ def get_objective(model_type, data_type):
         #hov
         dataset = Dataset("07")
         # dataset = Dataset()
+        dataset.to(device)
 
         dropout = trial.suggest_float("dropout", *dropout_range) 
 
@@ -57,6 +65,7 @@ def get_objective(model_type, data_type):
             encoder_params={"layer_sizes": encoder_layers_sizes, "dropout":dropout},
             decoder_params={"layer_sizes": decoder_layers_sizes, "dropout":dropout},
         )
+        model.to(device)
 
         lr = trial.suggest_loguniform("lr", *lr_range)
 

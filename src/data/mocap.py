@@ -55,6 +55,8 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         self.labels = data["labels"]
         self.n_features = self.X.shape[-1]
 
+    def to(self, device):
+        self.X.to(device)
 
     def _download_raw_data(self):
 
@@ -157,4 +159,5 @@ def process_amc(file_contents: io.BytesIO):
 if __name__ == "__main__":
 
     tmp = MotionCaptureDataset(subject="07")
+    tmp.to
 
