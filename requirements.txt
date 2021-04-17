@@ -9,4 +9,7 @@ black
 plotly
 sklearn
 pygtrie
+tensorboard
+optuna
+click
 -e .
