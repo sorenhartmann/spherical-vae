@@ -102,7 +102,7 @@ class Decoder(Module):
         self.reshape_features = reshape_features
 
         # Parameters for CNN part 
-        conv_1_out_channels =  2 
+        conv_1_out_channels =  10 
         conv_1_kernel_size = 7 
         conv_1_stride = 1 
         conv_1_pad    = 4
@@ -110,15 +110,15 @@ class Decoder(Module):
         conv1_height = compute_conv_dim(self.reshape_features[1], conv_1_kernel_size, conv_1_pad, conv_1_stride)
         conv1_width = compute_conv_dim(self.reshape_features[2], conv_1_kernel_size, conv_1_pad, conv_1_stride)
 
-        conv_2_out_channels =  3 
+        conv_2_out_channels =  3
         conv_2_kernel_size = 11 
         conv_2_stride = 4 
         conv_2_pad    = 3 
 
         conv2_height = compute_conv_dim(conv1_height, conv_2_kernel_size, conv_2_pad, conv_2_stride)
-        print(conv2_height)
+        #print(conv2_height)
         conv2_width = compute_conv_dim(conv1_width, conv_2_kernel_size, conv_2_pad, conv_2_stride)
-        print(conv2_width)
+        #print(conv2_width)
 
         self.ffnn = Sequential(
             Linear(in_features=in_features, out_features=100),
@@ -131,37 +131,52 @@ class Decoder(Module):
         self.CNN = Sequential(
             #--------------------------
             # First convolutional layer 
-            Conv2d(
-                in_channels=self.reshape_features[0],
-                out_channels=conv_1_out_channels,
-                kernel_size=conv_1_kernel_size,
-                stride=conv_1_stride,
-                padding=conv_1_pad),
+            #Conv2d(
+            #    in_channels=self.reshape_features[0],
+            #    out_channels=conv_1_out_channels,
+            #    kernel_size=conv_1_kernel_size,
+            #    stride=conv_1_stride,
+            #    padding=conv_1_pad),
             # Batch normalization
-            BatchNorm2d(conv_1_out_channels),
+            #BatchNorm2d(conv_1_out_channels),
             #Dropout2d(p = 0.5),
             #Activation function
-            ReLU(),
+            #ReLU(),
 
             # --------------------------
             # Second convolutional layer 
-            Conv2d(
-                in_channels=conv_1_out_channels,
-                out_channels=conv_2_out_channels,
-                kernel_size=conv_2_kernel_size,
-                stride=conv_2_stride,
-                padding=conv_2_pad),
+            #Conv2d(
+            #    in_channels=conv_1_out_channels,
+            #    out_channels=conv_2_out_channels,
+            #    kernel_size=conv_2_kernel_size,
+            #    stride=conv_2_stride,
+            #    padding=conv_2_pad),
+            # Batch Normalization 
+            #BatchNorm2d(conv_2_out_channels),
+            # Activation function 
+            #ReLU(),
+
+            # --------------------------
+            # First transposed convolutional layer 
+            ConvTranspose2d(in_channels=conv_2_out_channels, 
+                out_channels = conv_2_out_channels,
+                kernel_size=(5, 6),
+                stride = 4,
+                padding = 3),
             # Batch Normalization 
             BatchNorm2d(conv_2_out_channels),
             # Activation function 
             ReLU(),
-
-            ConvTranspose2d(in_channels=conv_2_out_channels, 
-                            out_channels = 3,
-                            kernel_size=(135, 170),
-                            stride = 20,
-                            padding = 15)
+        
+            # --------------------------
+            # Second transposed convolutional layer 
+            ConvTranspose2d(in_channels= conv_2_out_channels, 
+                out_channels = 3,
+                kernel_size=(19, 20),
+                stride = 2,
+                padding = 3)
         )
+
 
     def forward(self, x):
         
