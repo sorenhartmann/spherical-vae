@@ -1,11 +1,17 @@
 import torch
-from torch.nn import Module, Sequential, Linear, ReLU,Conv2d, Dropout2d, BatchNorm2d, MaxPool2d
+import numpy as np 
+from torch.nn import Module, Sequential, Linear, Sigmoid, ReLU,Conv2d, Dropout2d, BatchNorm2d, MaxPool2d, ConvTranspose2d
 
 def compute_conv_dim(dim_size, kernel_size, padding, stride):
     return int((dim_size - kernel_size + 2 * padding) / stride + 1)
 
 def compute_conv_transpose_dim(dim_size, kernel_size, padding, dialation, stride):
     return int((dim_size-1)*stride-2*padding+dialation*(kernel_size-1)+1)
+
+def compute_last_kernel_dim(out_dim_size, dim_size):
+    # For fixed stride=1, padding = 0, dialation=1 
+    return int(-dim_size + out_dim_size + 1)
+
 
 class Encoder(Module):
     # kernel_size: list of kernel sizes
@@ -89,12 +95,14 @@ class Encoder(Module):
 
 class Decoder(Module):
 
-    def __init__(self, in_features, reshape_features, out_features, kernel_size = None, padding_size = None,
-                 out_channel_size = None, stride = None,
+    def __init__(self, in_features, reshape_features, out_features, kernel_size = None,
+                 padding_size = None, out_channel_size = None, stride = None,
                  activation_function = None, ffnn_layer_size = None,
                  dropout = None, dropout2d = None):
 
         super().__init__()
+
+        self.reshape_features = reshape_features
 
         self.dropout = dropout
         self.dropout2d = dropout2d
@@ -124,7 +132,7 @@ class Decoder(Module):
 
         # TRANSPOSED CONVOLUTIONAL LAYERS ------------------------------------------------------
         convs = []
-        channels, height, width = reshape_features
+        channels, height, width = self.reshape_features
         for parameters in list(zip(out_channel_size, kernel_size, stride, padding_size)):
             convs.append(ConvTranspose2d(
                 in_channels=channels,
@@ -134,7 +142,7 @@ class Decoder(Module):
                 padding=parameters[3]
             ))
 
-            convs.append(BatchNorm2d(parameters[1])) 
+            convs.append(BatchNorm2d(parameters[0])) 
            
             if dropout is not None:
                 convs.append(Dropout2d(dropout2d))
@@ -144,26 +152,33 @@ class Decoder(Module):
             height = compute_conv_transpose_dim(height, parameters[1], parameters[3], 1, parameters[2])
             width = compute_conv_transpose_dim(width, parameters[1], parameters[3], 1, parameters[2])
             channels = parameters[0]
+            print(f"channels:{channels}, height:{height}, width:{width}")
+
+        # "Manuel" layer to ensure output image size, stride padding and dialation are default sizes
+        k1 = compute_last_kernel_dim(out_dim_size = out_features[1], dim_size = height)
+        k2 = compute_last_kernel_dim(out_dim_size = out_features[2], dim_size = width)
+        kernel_size = (k1,k2)
+
+        convs.append(ConvTranspose2d(
+            in_channels=channels,
+            out_channels=out_features[0],
+            kernel_size=kernel_size,
+        ))
+        convs.append(BatchNorm2d(out_features[0]))
+        convs.append(ActFunc())
 
         self.CNN = Sequential(*convs)
 
-
-
-
     def forward(self, x):
-        
         x = self.ffnn(x)
         new_dim = (x.shape[0],) + self.reshape_features
-        print(new_dim) 
-        x = self.CNN(x.view(new_dim))
-        print(x.shape)
-        
+        x = x.view(new_dim)
+        x = self.CNN(x)
+        return x
 
-        #print(x.shape)
-        #x = self.CNN(x.view(x.shape[0], conv_2_out_channels, maxPool_height, maxPool_width))
-        #print(x.shape)
-        #return x
-
+class CheckZeros(Module):
+    def forward(self, x):
+        pass
 
 if __name__ == "__main__":
     from src.data import SkinCancerDataset
@@ -175,9 +190,10 @@ if __name__ == "__main__":
                  activation_function = None, ffnn_layer_size = None,
                  dropout = None, dropout2d = None, maxpool = None)
     
-    hej = Decoder(in_features, reshape_features, out_features, kernel_size = None, padding_size = None,
-                 out_channel_size = None, stride = None,
+    hej = Decoder(in_features = 4, reshape_features = net.last_im_size,
+                 out_features = image_size, kernel_size = [3, 2], padding_size =  [2, 1],
+                 out_channel_size = [7, 3], stride = [1,1],
                  activation_function = None, ffnn_layer_size = None,
                  dropout = None, dropout2d = None)
 
-    #hej(net(data.X[0:10,:,:,:]))
+    tmp = hej(net(data.X[0:10,:,:,:]))
