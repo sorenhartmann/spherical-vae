@@ -94,7 +94,7 @@ class Encoder(Module):
 
 class Decoder(Module):
 
-    def __init__(self, in_features, reshape_features, out_features):
+    def __init__(self, in_features, reshape_features, out_features, kernel_size, stride):
 
         super().__init__()
 
@@ -160,19 +160,27 @@ class Decoder(Module):
             # First transposed convolutional layer 
             ConvTranspose2d(in_channels=conv_2_out_channels, 
                 out_channels = conv_2_out_channels,
-                kernel_size=(5, 6),
-                stride = 4,
+                kernel_size=(2, 4),
+                stride = 2,
                 padding = 3),
             # Batch Normalization 
-            BatchNorm2d(conv_2_out_channels),
+            #BatchNorm2d(conv_2_out_channels),
             # Activation function 
-            ReLU(),
+            #ReLU(),
         
             # --------------------------
             # Second transposed convolutional layer 
             ConvTranspose2d(in_channels= conv_2_out_channels, 
                 out_channels = 3,
-                kernel_size=(19, 20),
+                kernel_size=(2, 4),
+                stride = 2,
+                padding = 3),
+            
+            # --------------------------
+            # Third transposed convolutional layer
+            ConvTranspose2d(in_channels= 3, 
+                out_channels = 3,
+                kernel_size=(2, 4),
                 stride = 2,
                 padding = 3)
         )
