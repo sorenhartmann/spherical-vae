@@ -80,11 +80,18 @@ class VariationalAutoencoder(nn.Module):
 
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
-    def get_loss(self, batch):
+    def get_loss(self, batch, return_kl=False):
 
         output = self(batch)
         px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
-        loss = -px.log_prob(batch).sum(-1) + kl_divergence(
+        kl_term = kl_divergence(
             Independent(qz, 1), Independent(pz, 1)
         )
-        return loss.mean()
+        loss = -px.log_prob(batch).sum(-1) + kl_term
+
+        if not return_kl:
+            return loss.mean()
+        else:
+            return loss.mean(), kl_term.mean()
+
+

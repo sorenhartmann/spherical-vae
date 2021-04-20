@@ -50,7 +50,9 @@ class SphereUniform(Distribution):
             else torch.Size(sample_shape)
         )
 
-        norm_sample = torch.zeros(sample_shape + self._batch_shape + self._event_shape, device=device)
+        norm_sample = torch.zeros(
+            sample_shape + self._batch_shape + self._event_shape, device=device
+        )
         norm_sample.normal_()
 
         return norm_sample / norm_sample.norm(dim=-1, keepdim=True)
@@ -79,7 +81,8 @@ class VonMisesFisher(Distribution):
 
         self._log_2_pi = torch.log(torch.tensor(2 * math.pi))
 
-        self.beta_dist = torch.distributions.Beta((m - 1) / 2, (m - 1) / 2)
+        m_double = m.type(torch.double)
+        self.beta_dist = torch.distributions.Beta((m_double - 1) / 2, (m_double - 1) / 2)
         self.uniform_subsphere_dist = SphereUniform(m - 2, batch_shape=batch_shape)
 
         super().__init__(
@@ -92,7 +95,7 @@ class VonMisesFisher(Distribution):
         with torch.no_grad():
             return self.rsample()
 
-    def rsample(self, sample_shape=torch.Size()) -> Tensor:
+    def rsample(self, sample_shape=torch.Size(), save_for_grad=False) -> Tensor:
 
         batch_shape = self._batch_shape
 
@@ -119,6 +122,13 @@ class VonMisesFisher(Distribution):
         w = torch.zeros(
             sample_shape + batch_shape, dtype=torch.double, device=device
         )  # Can currently enter infinite loop if not double
+        if save_for_grad:
+            eps_accepted = torch.zeros(
+                sample_shape + batch_shape, dtype=torch.double, device=device
+            )
+            b_accepted = torch.zeros(
+                sample_shape + batch_shape, dtype=torch.double, device=device
+            )
 
         while True:
 
@@ -135,7 +145,6 @@ class VonMisesFisher(Distribution):
 
             epsilon = beta_dist.rsample((n_left,))
 
-
             w_proposal = (1 - (1 + b_) * epsilon) / (1 - (1 - b_) * epsilon)
             t = 2 * a_ * b_ / (1 - (1 - b_) * epsilon)
 
@@ -147,8 +156,18 @@ class VonMisesFisher(Distribution):
 
             mask_clone[mask] = accepted
             w[mask_clone] = w_proposal[accepted]
+            if save_for_grad:
+                eps_accepted[mask_clone] = epsilon[accepted]
+                b_accepted[mask_clone] = b_[accepted]
+
             done[mask_clone] = True
 
+        if save_for_grad:
+            self.saved_for_grad = {
+                "eps" : eps_accepted,
+                "w" : w,
+                "b" : b_accepted,
+            }
         w = w.view(sample_shape + batch_shape + (1,))
 
         # Sample from subsphere
@@ -246,6 +265,11 @@ def vmf_uniform_kl(vmf, su):
 
 if __name__ == "__main__":
 
-    k = torch.tensor([1, 200, 3, 4], dtype=torch.double, requires_grad=True, device=device)
+    k = torch.tensor(
+        [1, 200, 3, 4], dtype=torch.double, requires_grad=True, device=device
+    )
     m = torch.tensor([5, 7, 2, 19], device=device)
+    assert torch.autograd.gradcheck(vMFUniformKL.apply, (k, m))
+
+    
     assert torch.autograd.gradcheck(vMFUniformKL.apply, (k, m))

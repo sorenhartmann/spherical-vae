@@ -2,8 +2,9 @@ from logging import log
 import os
 from pathlib import Path
 import torch
+from torch.distributions.kl import kl_divergence
 from torch.nn import Module, Linear, Sequential, Dropout
-
+from scipy.special import ive
 
 from torch.utils.data.dataset import random_split
 from torch.utils.tensorboard import SummaryWriter
@@ -12,12 +13,19 @@ from tqdm import trange
 from datetime import datetime
 import optuna
 
+
 class ModelParameterError(Exception):
     pass
 
+
 class Encoder(Module):
     def __init__(
-        self, in_features, out_features, layer_sizes=None, activation_function=None, dropout=None
+        self,
+        in_features,
+        out_features,
+        layer_sizes=None,
+        activation_function=None,
+        dropout=None,
     ):
 
         super().__init__()
@@ -26,7 +34,7 @@ class Encoder(Module):
 
         if layer_sizes is None:
             layer_sizes = [100, 100]
-        self._layer_sizes = layer_sizes 
+        self._layer_sizes = layer_sizes
 
         if activation_function is None:
             activation_function = "ReLU"
@@ -54,15 +62,16 @@ class Encoder(Module):
 class Decoder(Encoder):
     pass
 
+
 class SummaryWriter(SummaryWriter):
     def add_hparams(self, hparam_dict, metric_dict):
         torch._C._log_api_usage_once("tensorboard.logging.add_hparams")
         if type(hparam_dict) is not dict or type(metric_dict) is not dict:
-            raise TypeError('hparam_dict and metric_dict should be dictionary.')
+            raise TypeError("hparam_dict and metric_dict should be dictionary.")
         exp, ssi, sei = hparams(hparam_dict, metric_dict)
 
         logdir = self._get_file_writer().get_logdir()
-        
+
         with SummaryWriter(log_dir=logdir) as w_hp:
             w_hp.file_writer.add_summary(exp)
             w_hp.file_writer.add_summary(ssi)
@@ -82,7 +91,7 @@ def train_model(
     checkpoint_path=None,
     retrain=False,
     epoch_callback=None,
-    trial:optuna.trial.Trial=None,
+    trial: optuna.trial.Trial = None,
     progress_bar=True,
 ):
 
@@ -99,7 +108,7 @@ def train_model(
             log_dir = f"{log_dir}_{trial.number}"
         writer = SummaryWriter(flush_secs=5, log_dir=log_dir)
     else:
-        writer=None
+        writer = None
 
     def add_scalar(*args, **kwargs):
         if writer is not None:
@@ -127,9 +136,11 @@ def train_model(
 
     epoch_train_loss = [None] * len(train_loader)
     epoch_validation_loss = [None] * len(validation_loader)
+    epoch_kl_divergence = [None] * len(validation_loader)
 
     train_loss = [None] * n_epochs
     validation_loss = [None] * n_epochs
+    kl_divergence = [None] * n_epochs
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -137,19 +148,22 @@ def train_model(
 
     for epoch in iter_:
 
-        # eg. for annealing beta parameter FIXME: Currently a bit wonky with the 
-        # required arguments. Would probably be more intutive with the trainer wrapped 
+        # eg. for annealing beta parameter FIXME: Currently a bit wonky with the
+        # required arguments. Would probably be more intutive with the trainer wrapped
         # in an object -> could just be fixed with subclassing
         if epoch_callback is not None:
             epoch_callback(model, epoch, n_epochs, writer=writer)
 
         model.train()
         for i, batch in enumerate(train_loader):
-
             # Forward pass
-            loss = model.get_loss(batch)
-            optimizer.zero_grad()
-            loss.backward()
+            if type(model).__name__ == 'SphericalVAE':
+                loss = model.fill_gradients_and_get_loss(batch)
+            else:
+                loss = model.get_loss(batch)
+                optimizer.zero_grad()
+                loss.backward()
+
             optimizer.step()
 
             epoch_train_loss[i] = loss.item()
@@ -160,13 +174,16 @@ def train_model(
 
             for i, batch in enumerate(validation_loader):
                 # Forward pass
-                loss = model.get_loss(batch)
+                loss, kl_term = model.get_loss(batch, return_kl=True)
                 epoch_validation_loss[i] = loss.item()
+                epoch_kl_divergence[i] = kl_term.item()
 
         train_loss[epoch] = sum(epoch_train_loss) / len(epoch_train_loss)
         add_scalar("Loss/Train", train_loss[epoch], epoch)
         validation_loss[epoch] = sum(epoch_validation_loss) / len(epoch_validation_loss)
         add_scalar("Loss/Validation", validation_loss[epoch], epoch)
+        kl_divergence[epoch] = sum(epoch_kl_divergence) / len(epoch_kl_divergence)
+        add_scalar("Average KL-term", kl_divergence[epoch], epoch)
 
         if trial is not None:
             trial.report(validation_loss[epoch], epoch)
@@ -174,9 +191,9 @@ def train_model(
                 raise optuna.TrialPruned
 
     if writer is not None:
-        hparams = {"lr" : lr, "batch_size": batch_size}
+        hparams = {"lr": lr, "batch_size": batch_size}
         hparams.update(get_hparams(model))
-        metrics = {"neg_ELBO" : min(validation_loss) }
+        metrics = {"neg_ELBO": min(validation_loss)}
         writer.add_hparams(hparams, metrics)
         writer.close()
 
@@ -185,9 +202,10 @@ def train_model(
 
     return train_loss, validation_loss
 
+
 def get_hparams(model):
     return {
-        "latent_dim" : model.latent_dim,
+        "latent_dim": model.latent_dim,
         "encoder__layer_sizes": str(model.encoder._layer_sizes),
         "encoder__n_layers": len(model.encoder._layer_sizes),
         "encoder__activation_function": model.encoder._activation_function,
