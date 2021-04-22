@@ -75,36 +75,51 @@ class SphericalVAE(Module):
 
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
-    def get_loss(self, batch, return_kl=False):
+    def get_loss(self, batch, return_kl=False, beta=1.):
 
-        output = self(batch)
-        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
-        kl_term = kl_divergence(qz, pz)
-        loss = -px.log_prob(batch).sum(-1) + kl_term
+        loss = CorrectedLoss(self, batch, beta=beta)
 
         if not return_kl:
-            return loss.mean()
+            return loss
         else:
-            return loss.mean(), kl_term.mean()
+            return loss, loss.kl_term.mean()
 
-    def fill_gradients_and_get_loss(self, x):
 
-        output = self(x)
-        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+class CorrectedLoss:
+    """ Corrects the gradient of the loss """
 
-        kl_term = kl_divergence(qz, pz)
-        log_px = px.log_prob(x).sum(-1)
-        loss = -log_px + kl_term
-        loss = loss.mean()
+    def __init__(self, model, batch, beta=1.):
 
-        self.zero_grad()
+        self.beta = beta
+        self.model = model
+        output = self.model(batch)
+        self.px, self.pz, self.qz, self.z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        self.kl_term = kl_divergence(self.qz, self.pz)
+        self.log_px = self.px.log_prob(batch).sum(-1)
+        loss = -self.log_px + beta*self.kl_term
+        self.loss = loss.mean()
 
-        (log_px_d_k,) = torch.autograd.grad(log_px, qz.k, grad_outputs=torch.ones_like(qz.k),  retain_graph=True)
-        (kl_term_d_k,) = torch.autograd.grad(kl_term, qz.k, grad_outputs=torch.ones_like(qz.k),  retain_graph=True)
+    def item(self):
+        return self.loss.item()
+
+    def backward(self):
+
+        qz = self.qz 
+
+        log_px = self.log_px
+        kl_term = self.kl_term
+        loss = self.loss
+
+        (log_px_d_k,) = torch.autograd.grad(
+            log_px, qz.k, grad_outputs=torch.ones_like(qz.k), retain_graph=True
+        )
+        (kl_term_d_k,) = torch.autograd.grad(
+            kl_term, qz.k, grad_outputs=torch.ones_like(qz.k), retain_graph=True
+        )
 
         (loss_d_mu,) = torch.autograd.grad(loss, qz.mu, retain_graph=True)
         loss_d_decoder = torch.autograd.grad(
-            loss, self.decoder.parameters(), retain_graph=True
+            loss, self.model.decoder.parameters(), retain_graph=True
         )
 
         eps = qz.saved_for_grad["eps"]
@@ -126,10 +141,8 @@ class SphericalVAE(Module):
             )
 
         log_px_d_k_adj = log_px_d_k + g_cor
-        loss_d_k = (-log_px_d_k_adj + kl_term_d_k) / len(qz.k)
+        loss_d_k = (-log_px_d_k_adj + self.beta * kl_term_d_k) / len(qz.k)
 
         torch.autograd.backward(qz.k, grad_tensors=loss_d_k, retain_graph=True)
         torch.autograd.backward(qz.mu, grad_tensors=loss_d_mu, retain_graph=True)
-        torch.autograd.backward(self.decoder.parameters(), grad_tensors=loss_d_decoder)
-
-        return loss
+        torch.autograd.backward(self.model.decoder.parameters(), grad_tensors=loss_d_decoder)
