@@ -1,12 +1,14 @@
 import multiprocessing
-from multiprocessing import process
 import os
-from src.models.common import ModelParameterError, train_model
+from pathlib import Path
+
+from torch.utils.data.dataset import Subset, random_split
+from src.models.common import ModelParameterError, ModelTrainer
 from src.models.vae import VariationalAutoencoder
 from src.models.svae import SphericalVAE
 import time
 import click
-from src.data import SyntheticS2, SkinCancerDataset, MotionCaptureDataset
+from src.data import SyntheticS2, MotionCaptureDataset
 import optuna
 import torch
 from multiprocessing import Pool
@@ -22,73 +24,152 @@ hparam_search_space = {
     "layer_size": (100, 1000),
     "lr": (1e-4, 1e-2),
     "dropout": (0.1, 0.5),
-}
-
-models = {
-    "vae": VariationalAutoencoder,
-    "svae": SphericalVAE,
-}
-
-datasets = {
-    "synthetic": SyntheticS2,
-    "mocap": MotionCaptureDataset,
+    "beta_0": (1e-3, 1),
 }
 
 
-def get_objective(model_type, data_type, n_epochs):
+def get_model_class(model_name):
 
-    Model = models[model_type]
-    Dataset = datasets[data_type]
+    if model_name == "vae":
+        return VariationalAutoencoder
+    elif model_name == "svae":
+        return SphericalVAE
+    else:
+        raise ValueError
 
-    def objective(trial: optuna.trial.Trial):
 
-        n_layers_range = hparam_search_space["n_layers"]
-        layer_size_range = hparam_search_space["layer_size"]
-        lr_range = hparam_search_space["lr"]
-        dropout_range = hparam_search_space["dropout"]
+def get_dataset(dataset_name):
 
-        encoder_n_layers = trial.suggest_int("n_layers", *n_layers_range)
+    if dataset_name == "synthetic":
+        return SyntheticS2()
+    elif "mocap" in dataset_name:
+        _, subject_id = dataset_name.split("-")
+        return MotionCaptureDataset(subject_id)
+    else:
+        raise ValueError
+
+
+class BetaFunction:
+    def __init__(self, beta_0, n_epochs, start=0.25, end=0.75) -> None:
+
+        self.beta_0 = beta_0
+        self.n_epochs = n_epochs
+        self.start = start * n_epochs
+        self.end = end * n_epochs
+
+        self.a = 2 * (1 - beta_0) / self.n_epochs
+        self.b = beta_0 - self.a * self.n_epochs / 4
+
+        self.elbo_valid_after = self.end
+
+    def __call__(self, i):
+
+        if i < self.start:
+            return self.beta_0
+        elif i >= self.start and i < self.end:
+            return self.a * i + self.b
+        else:
+            return 1
+
+
+class Objective:
+    def __init__(
+        self,
+        model_name,
+        train_dataset,
+        validation_dataset,
+        n_epochs=100,
+        batch_size=16,
+        latent_dim=3,
+        log_dir=None,
+    ):
+
+        self.n_layers_range = hparam_search_space["n_layers"]
+        self.layer_size_range = hparam_search_space["layer_size"]
+        self.lr_range = hparam_search_space["lr"]
+        self.dropout_range = hparam_search_space["dropout"]
+        self.beta_0_range = hparam_search_space["beta_0"]
+
+        self.ModelClass = get_model_class(model_name)
+        self.train_dataset = train_dataset
+        self.validation_dataset = validation_dataset
+
+        self.n_epochs = n_epochs
+        self.batch_size = batch_size
+        self.latent_dim = latent_dim
+
+        self.log_dir = log_dir
+
+    def __call__(self, trial: optuna.trial.Trial):
+
+        encoder_n_layers = trial.suggest_int("n_layers", *self.n_layers_range)
         encoder_layers_sizes = []
         for i in range(encoder_n_layers):
             encoder_layers_sizes.append(
-                trial.suggest_int(f"layer_size_{i+1}", *layer_size_range)
+                trial.suggest_int(f"layer_size_{i+1}", *self.layer_size_range)
             )
 
         decoder_layers_sizes = encoder_layers_sizes[::-1]
 
-        # hov
-        dataset = Dataset("07")
-        # dataset = Dataset()
-        dataset.to(device)
+        dropout = trial.suggest_float("dropout", *self.dropout_range)
 
-        dropout = trial.suggest_float("dropout", *dropout_range)
+        if type(self.train_dataset) is Subset:
+            n_features = self.train_dataset.dataset.n_features
+        else:
+            n_features = self.train_dataset.n_features
 
-        model = Model(
-            feature_dim=dataset.n_features,
-            latent_dim=3,
-            encoder_params={"layer_sizes": encoder_layers_sizes, "dropout": dropout},
-            decoder_params={"layer_sizes": decoder_layers_sizes, "dropout": dropout},
+        model = self.ModelClass(
+            feature_dim=n_features,
+            latent_dim=self.latent_dim,
+            encoder_params={
+                "layer_sizes": encoder_layers_sizes,
+                "dropout": dropout,
+                "activation_function": "Tanh",
+            },
+            decoder_params={
+                "layer_sizes": decoder_layers_sizes,
+                "dropout": dropout,
+                "activation_function": "Tanh",
+            },
         )
         model.to(device)
 
-        lr = trial.suggest_loguniform("lr", *lr_range)
+        for dataset in [self.train_dataset, self.validation_dataset]:
+            if type(dataset) is Subset:
+                dataset.dataset.to(device)
+            else:
+                dataset.to(device)
 
-        train_loss, validation_loss = train_model(
-            model,
-            dataset,
-            label=f"{data_type}_{model_type}",
-            n_epochs=n_epochs,
-            batch_size=16,
+        lr = trial.suggest_loguniform("lr", *self.lr_range)
+
+        beta_0 = trial.suggest_loguniform("beta_0", *self.beta_0_range)
+        beta_function = BetaFunction(beta_0, self.n_epochs)
+
+        if self.log_dir is not None:
+            tb_dir = self.log_dir / f"{trial.number:03}"
+        else:
+            tb_dir = None
+
+        model_trainer = ModelTrainer(
+            model=model,
+            n_epochs=self.n_epochs,
+            batch_size=self.batch_size,
             lr=lr,
-            trial=trial,
+            beta_function=beta_function,
+            tb_dir=tb_dir,
+        )
+
+        model_trainer.train(
+            train_dataset=self.train_dataset,
+            validation_dataset=self.validation_dataset,
+            random_state=None,
             progress_bar=False,
         )
 
-        loss = min(validation_loss)
+        loss = min(model_trainer.validation_loss)
 
         return loss
 
-    return objective
 
 def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 
@@ -108,25 +189,48 @@ def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 
 
 @click.command()
-@click.argument("model", type=click.Choice(models.keys()))
-@click.argument("data", type=click.Choice(datasets.keys()))
-@click.option("--n-trials", type=int)
-@click.option("--seed", type=int)
-@click.option("--processes", type=int)
-@click.option("--epochs", type=int)
-def main(model, data, n_trials, seed, processes, epochs):
+@click.argument("model", default="svae")
+@click.argument("data", default="synthetic")
+@click.option("--n-trials", type=int, default=100, show_default=True)
+@click.option("--n-processes", type=int, default=1, show_default=True)
+@click.option("--n-epochs", type=int, default=100, show_default=True)
+@click.option("--train-split", type=float, default=0.7, show_default=True)
+@click.option("--batch-size", type=int, default=16, show_default=True)
+@click.option("--latent_dim", type=int, default=3, show_default=True)
+@click.option("--seed", type=int, default=10)
+def main(
+    model,
+    data,
+    n_trials,
+    n_processes,
+    n_epochs,
+    train_split,
+    batch_size,
+    latent_dim,
+    seed,
+):
 
-    if n_trials is None:
-        n_trials = 100
+    torch.manual_seed(seed)
 
-    if seed is None:
-        seed = 10
+    dataset = get_dataset(dataset_name=data)
+    train_size = int(train_split * len(dataset))
+    validation_size = len(dataset) - train_size
+    train_dataset, validation_dataset = random_split(
+        dataset,
+        [train_size, validation_size],
+        generator=torch.Generator().manual_seed(42),
+    )
 
-    if epochs is None:
-        epochs = 100
+    run_dir = (Path(__file__).parents[1] / "runs").resolve()
 
     study_name = f"{data}-{model}"
-    storage_name = f"sqlite:///runs/{study_name}.db"
+    study_dir = run_dir / study_name
+
+    if not study_dir.exists():
+        study_dir.mkdir(parents=True)
+    storage_name = (
+        f"sqlite:///{(study_dir / 'optuna-storage.db').relative_to(os.getcwd())}"
+    )
 
     optuna.create_study(
         study_name=study_name,
@@ -135,12 +239,24 @@ def main(model, data, n_trials, seed, processes, epochs):
         load_if_exists=True,
     )
 
-    objective = get_objective(model, data, epochs)
+    log_dir = study_dir / "hp-search"
+    objective = Objective(
+        model_name=model,
+        train_dataset=train_dataset,
+        validation_dataset=validation_dataset,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+        latent_dim=latent_dim,
+        log_dir=log_dir,
+    )
 
-    if processes == 1 or processes is None:
+    if n_trials == -1:
+        n_trials = None
+
+    if n_processes == 1 or n_processes is None:
         _load_and_run(study_name, storage_name, objective, n_trials, seed)
     else:
-        n_processes = os.cpu_count() if processes == -1 else processes
+        n_processes = os.cpu_count() if n_processes == -1 else n_processes
         for i in range(n_processes):
             print(f"Starting process {i}")
             p = multiprocessing.Process(
@@ -158,5 +274,5 @@ def main(model, data, n_trials, seed, processes, epochs):
 
 
 if __name__ == "__main__":
-
+    
     main()
