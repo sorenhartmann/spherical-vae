@@ -9,25 +9,24 @@ from torch.distributions.kl import kl_divergence
 
 from torch.utils.data import random_split
 
-class VariationalAutoencoder(nn.Module):
+class ConvolutionalVariationalAutoencoder(nn.Module):
     """A Variational Autoencoder with
     * a Gaussian observation model `p(x|z)`
     * a Gaussian prior `p(z) = N(z | 0, I)`
     * a Gaussian posterior `q(z|x) = N(z | \mu(x), \sigma(x))`
     """
-    def __init__(self, image_size, input_dimension, latent_features):
+    def __init__(self, image_size, latent_features):
 
         super().__init__()
 
-        self.input_dimension = input_dimension
         self.latent_features = latent_features
 
-        self.encoder = Encoder(image_size, out_features = latent_features + 1,  kernel_size = [3, 2], 
+        self.encoder = Encoder(image_size, out_features = latent_features*2,  kernel_size = [3, 2], 
                                padding_size = [2, 1], out_channel_size = [7, 3], stride = [1,1],
                                activation_function = None, ffnn_layer_size = None,
                                dropout = None, dropout2d = None, maxpool = None)
     
-        self.decoder = Decoder(in_features = latent_features + 1,
+        self.decoder = Decoder(in_features = latent_features,
                  reshape_features = self.encoder.last_im_size,
                  out_features = image_size, kernel_size = [3, 2], padding_size =  [2, 1],
                  out_channel_size = [7, 3], stride = [1,1],
@@ -74,3 +73,16 @@ class VariationalAutoencoder(nn.Module):
         px = self.observation_model(z)
     
         return {'px': px, 'pz': pz, 'qz': qz, 'z': z}
+
+if __name__ == "__main__":
+    
+    torch.manual_seed(123)
+    from src.data import SkinCancerDataset
+    data = SkinCancerDataset(image_size=(225, 300))
+    image_size = data.X.shape[1:]
+
+    ham_vae = ConvolutionalVariationalAutoencoder(image_size=image_size, latent_features=3)
+
+    ham_vae(data.X[:10,:,:,:])
+
+
