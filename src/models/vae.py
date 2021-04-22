@@ -11,6 +11,7 @@ from torch.distributions.kl import kl_divergence
 
 from torch.utils.data import random_split
 
+
 class VariationalAutoencoder(nn.Module):
     """A Variational Autoencoder with
     * a Gaussian observation model `p(x|z)`
@@ -30,7 +31,7 @@ class VariationalAutoencoder(nn.Module):
         if encoder_params is None:
             encoder_params = {}
         self.encoder = Decoder(self.feature_dim, 2 * latent_dim, **encoder_params)
-        
+
         if decoder_params is None:
             decoder_params = {}
         self.decoder = Encoder(self.latent_dim, 2 * self.feature_dim, **decoder_params)
@@ -80,18 +81,17 @@ class VariationalAutoencoder(nn.Module):
 
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
-    def get_loss(self, batch, return_kl=False):
+    def get_loss(self, batch, return_kl=False, beta=1.0):
 
         output = self(batch)
         px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
-        kl_term = kl_divergence(
-            Independent(qz, 1), Independent(pz, 1)
-        )
-        loss = -px.log_prob(batch).sum(-1) + kl_term
+        kl_term = kl_divergence(Independent(qz, 1), Independent(pz, 1))
+
+    
+
+        loss = -px.log_prob(batch).sum(-1) + beta * kl_term
 
         if not return_kl:
             return loss.mean()
         else:
             return loss.mean(), kl_term.mean()
-
-
