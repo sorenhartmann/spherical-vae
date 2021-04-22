@@ -58,10 +58,8 @@ class Encoder(Module):
 
         return self.ffnn(x)
 
-
 class Decoder(Encoder):
     pass
-
 
 class SummaryWriter(SummaryWriter):
     def add_hparams(self, hparam_dict, metric_dict):
@@ -79,128 +77,151 @@ class SummaryWriter(SummaryWriter):
             for k, v in metric_dict.items():
                 w_hp.add_scalar(k, v)
 
+class ModelTrainer:
+    def __init__(
+        self,
+        model,
+        n_epochs=100,
+        batch_size=16,
+        lr=1e-3,
+        beta_function=None,
+        checkpoint_path=None,
+        tb_label=None,
+        tb_dir=None,
+    ):
 
-def train_model(
-    model,
-    dataset,
-    label=None,
-    train_size=0.8,
-    n_epochs=100,
-    batch_size=16,
-    lr=1e-3,
-    checkpoint_path=None,
-    retrain=False,
-    epoch_callback=None,
-    trial: optuna.trial.Trial = None,
-    progress_bar=True,
-):
+        self.model = model
 
-    ## Can only train models with defined loss
-    assert hasattr(model, "get_loss") and callable(
-        model.get_loss
-    ), "Model needs to have implemented a .get_loss method"
+        ## Can only train models with defined loss
+        assert hasattr(self.model, "get_loss") and callable(
+            self.model.get_loss
+        ), "Model needs to have implemented a .get_loss method"
 
-    ## For tensorboard integration
-    if label is not None:
-        now = datetime.now().strftime("%b%d_%H-%M-%S")
-        log_dir = os.path.join("runs", label, now)
-        if trial is not None:
-            log_dir = f"{log_dir}_{trial.number}"
-        writer = SummaryWriter(flush_secs=5, log_dir=log_dir)
-    else:
-        writer = None
+        ## Training parameters
+        self.n_epochs = n_epochs
+        self.batch_size = batch_size
+        self.lr = lr
+        self.beta_function = beta_function
 
-    def add_scalar(*args, **kwargs):
-        if writer is not None:
-            writer.add_scalar(*args, **kwargs)
-        return
+        ## Path to saved trained model to
+        self.checkpoint_path = checkpoint_path
+        
+        self.init_tb_writer(tb_dir=tb_dir, tb_label=tb_label )
 
-    ## Don't retrain model if already trained TODO: Check hyperparameters?
-    if checkpoint_path is not None and Path(checkpoint_path).exists() and not retrain:
-        return
 
-    ## Set seed for train/test split TODO: Maybe do outside function?
-    torch.manual_seed(123)
+    def init_tb_writer(self, tb_dir=None, tb_label=None):
 
-    train_size = int(train_size * len(dataset))
-    validation_size = len(dataset) - train_size
+        ## Label for tensorboard integration
+        if tb_dir is None and tb_label is None:
+            self.tb_writer = None
+            return
+        elif tb_dir is None and tb_label is not None:
+            now = datetime.now().strftime("%b%d_%H-%M-%S")
+            log_dir = os.path.join("runs", tb_label, now)
+        elif tb_dir is not None:
+            log_dir = tb_dir
 
-    train_dataset, validation_dataset = random_split(
-        dataset, [train_size, validation_size]
-    )
+        self.tb_writer = SummaryWriter(flush_secs=5, log_dir=log_dir)
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size)
-    validation_loader = torch.utils.data.DataLoader(
-        validation_dataset, batch_size=batch_size
-    )
+    def train_setup(
+        self,
+        train_dataset,
+        validation_dataset,
+        random_state=123,
+    ):
 
-    epoch_train_loss = [None] * len(train_loader)
-    epoch_validation_loss = [None] * len(validation_loader)
-    epoch_kl_divergence = [None] * len(validation_loader)
+        if random_state is not None:
+            torch.manual_seed(random_state)
 
-    train_loss = [None] * n_epochs
-    validation_loss = [None] * n_epochs
-    kl_divergence = [None] * n_epochs
+        self.train_loader = torch.utils.data.DataLoader(
+            train_dataset, batch_size=self.batch_size
+        )
+        self.validation_loader = torch.utils.data.DataLoader(
+            validation_dataset, batch_size=self.batch_size
+        )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        self.train_loss = [None] * self.n_epochs
+        self.validation_loss = [None] * self.n_epochs
+        self.kl_divergence = [None] * self.n_epochs
 
-    iter_ = trange(n_epochs) if progress_bar else range(n_epochs)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
-    for epoch in iter_:
+    def train(
+        self,
+        train_dataset,
+        validation_dataset,
+        random_state=123,
+        progress_bar=True,
+    ):
+    
+        self.train_setup(
+            train_dataset=train_dataset,
+            validation_dataset=validation_dataset,
+            random_state=random_state,
+        )
 
-        # eg. for annealing beta parameter FIXME: Currently a bit wonky with the
-        # required arguments. Would probably be more intutive with the trainer wrapped
-        # in an object -> could just be fixed with subclassing
-        if epoch_callback is not None:
-            epoch_callback(model, epoch, n_epochs, writer=writer)
+        iter_ = trange(self.n_epochs) if progress_bar else range(self.n_epochs)
 
-        model.train()
-        for i, batch in enumerate(train_loader):
+        for epoch in iter_:
+            self.per_epoch(epoch)
+
+        self.after_training()
+
+    def train_loop(self, epoch):
+        
+        beta = 1. if self.beta_function is None else self.beta_function(epoch)
+
+        self.model.train()
+        for i, batch in enumerate(self.train_loader):
+
             # Forward pass
-            if type(model).__name__ == 'SphericalVAE':
-                loss = model.fill_gradients_and_get_loss(batch)
-            else:
-                loss = model.get_loss(batch)
-                optimizer.zero_grad()
-                loss.backward()
+            loss = self.model.get_loss(batch, beta=beta)
+            self.optimizer.zero_grad()
+            loss.backward()
 
-            optimizer.step()
+            self.optimizer.step()
+            self.epoch_train_loss[i] = loss.item()
 
-            epoch_train_loss[i] = loss.item()
-
-        # Validating model
-        model.eval()
+    def validation_loop(self, epoch):
+        
+        self.model.eval()
         with torch.no_grad():
-
-            for i, batch in enumerate(validation_loader):
+            for i, batch in enumerate(self.validation_loader):
                 # Forward pass
-                loss, kl_term = model.get_loss(batch, return_kl=True)
-                epoch_validation_loss[i] = loss.item()
-                epoch_kl_divergence[i] = kl_term.item()
+                loss, kl_term = self.model.get_loss(batch, return_kl=True)
+                self.epoch_validation_loss[i] = loss.item()
+                self.epoch_kl_divergence[i] = kl_term.item()
 
-        train_loss[epoch] = sum(epoch_train_loss) / len(epoch_train_loss)
-        add_scalar("Loss/Train", train_loss[epoch], epoch)
-        validation_loss[epoch] = sum(epoch_validation_loss) / len(epoch_validation_loss)
-        add_scalar("Loss/Validation", validation_loss[epoch], epoch)
-        kl_divergence[epoch] = sum(epoch_kl_divergence) / len(epoch_kl_divergence)
-        add_scalar("Average KL-term", kl_divergence[epoch], epoch)
+                    
+    def per_epoch(self, epoch):
 
-        if trial is not None:
-            trial.report(validation_loss[epoch], epoch)
-            if trial.should_prune():
-                raise optuna.TrialPruned
+        self.epoch_train_loss = [None] * len(self.train_loader)
+        self.epoch_validation_loss = [None] * len(self.validation_loader)
+        self.epoch_kl_divergence = [None] * len(self.validation_loader)
 
-    if writer is not None:
-        hparams = {"lr": lr, "batch_size": batch_size}
-        hparams.update(get_hparams(model))
-        metrics = {"neg_ELBO": min(validation_loss)}
-        writer.add_hparams(hparams, metrics)
-        writer.close()
+        self.train_loop(epoch)
+        self.validation_loop(epoch)
 
-    if checkpoint_path is not None:
-        torch.save(model.state_dict(), checkpoint_path)
+        self.train_loss[epoch] = sum(self.epoch_train_loss) / len(self.epoch_train_loss)
+        self.validation_loss[epoch] = sum(self.epoch_validation_loss) / len(self.epoch_validation_loss)
+        self.kl_divergence[epoch] = sum(self.epoch_kl_divergence) / len(self.epoch_kl_divergence)
+        
+        if self.tb_writer is not None:
+            self.tb_writer.add_scalar("Loss/Train", self.train_loss[epoch], epoch)
+            self.tb_writer.add_scalar("Loss/Validation", self.validation_loss[epoch], epoch)
+            self.tb_writer.add_scalar("Average KL-term", self.kl_divergence[epoch], epoch)
 
-    return train_loss, validation_loss
+    def after_training(self):
+
+        if self.tb_writer is not None:
+            hparams = {"lr": self.lr, "batch_size": self.batch_size, "beta_0": self.beta_function.beta_0}
+            hparams.update(get_hparams(self.model))
+            metrics = {"neg_ELBO": min(self.validation_loss)}
+            self.tb_writer.add_hparams(hparams, metrics)
+            self.tb_writer.close()
+
+        if self.checkpoint_path is not None:
+            torch.save(self.model.state_dict(), self.checkpoint_path)
 
 
 def get_hparams(model):
