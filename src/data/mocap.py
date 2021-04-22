@@ -113,7 +113,7 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         return data
 
     def __len__(self):
-        return self.X.shape[-1]
+        return self.X.shape[0]
 
     def __getitem__(self, index):
         return self.X[index, :]
@@ -155,9 +155,3 @@ def process_amc(file_contents: io.BytesIO):
 
     data = pd.DataFrame.from_records(observations, columns=field_names,)
     return data
-
-if __name__ == "__main__":
-
-    tmp = MotionCaptureDataset(subject="07")
-    tmp.to
-
