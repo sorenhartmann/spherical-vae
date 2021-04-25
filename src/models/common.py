@@ -78,6 +78,7 @@ class SummaryWriter(SummaryWriter):
                 w_hp.add_scalar(k, v)
 
 class ModelTrainer:
+    
     def __init__(
         self,
         model,
@@ -105,6 +106,9 @@ class ModelTrainer:
 
         ## Path to saved trained model to
         self.checkpoint_path = checkpoint_path
+
+        self.best_params = None
+        self.best_loss = None
         
         self.init_tb_writer(tb_dir=tb_dir, tb_label=tb_label )
 
@@ -143,6 +147,10 @@ class ModelTrainer:
         self.train_loss = [None] * self.n_epochs
         self.validation_loss = [None] * self.n_epochs
         self.kl_divergence = [None] * self.n_epochs
+
+        self.epoch_train_loss = [None] * len(self.train_loader)
+        self.epoch_validation_loss = [None] * len(self.validation_loader)
+        self.epoch_kl_divergence = [None] * len(self.validation_loader)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
@@ -191,21 +199,24 @@ class ModelTrainer:
                 loss, kl_term = self.model.get_loss(batch, return_kl=True)
                 self.epoch_validation_loss[i] = loss.item()
                 self.epoch_kl_divergence[i] = kl_term.item()
-
                     
     def per_epoch(self, epoch):
 
-        self.epoch_train_loss = [None] * len(self.train_loader)
-        self.epoch_validation_loss = [None] * len(self.validation_loader)
-        self.epoch_kl_divergence = [None] * len(self.validation_loader)
-
+        # Perfom loops
         self.train_loop(epoch)
         self.validation_loop(epoch)
 
+        ## Calculate statistics
         self.train_loss[epoch] = sum(self.epoch_train_loss) / len(self.epoch_train_loss)
         self.validation_loss[epoch] = sum(self.epoch_validation_loss) / len(self.epoch_validation_loss)
         self.kl_divergence[epoch] = sum(self.epoch_kl_divergence) / len(self.epoch_kl_divergence)
+
+        ## Record best model
+        if self.best_loss is None or self.validation_loss[epoch] < self.best_loss:
+            self.best_loss = self.validation_loss[epoch]
+            self.best_params = self.model.state_dict()
         
+        ## Log to tensorboard
         if self.tb_writer is not None:
             self.tb_writer.add_scalar("Loss/Train", self.train_loss[epoch], epoch)
             self.tb_writer.add_scalar("Loss/Validation", self.validation_loss[epoch], epoch)
@@ -213,6 +224,7 @@ class ModelTrainer:
 
     def after_training(self):
 
+        ## Log hyper parameters to tensorboard
         if self.tb_writer is not None:
             hparams = {"lr": self.lr, "batch_size": self.batch_size, "beta_0": self.beta_function.beta_0}
             hparams.update(get_hparams(self.model))
@@ -221,6 +233,7 @@ class ModelTrainer:
             self.tb_writer.close()
 
         if self.checkpoint_path is not None:
+            Path(self.checkpoint_path).parent.mkdir(exist_ok=True, parents=True)
             torch.save(self.model.state_dict(), self.checkpoint_path)
 
 

@@ -73,6 +73,7 @@ class BetaFunction:
 
 
 class Objective:
+
     def __init__(
         self,
         model_name,
@@ -82,6 +83,8 @@ class Objective:
         batch_size=16,
         latent_dim=3,
         log_dir=None,
+        checkpoint_dir=None,
+        keep_best=10,
     ):
 
         self.n_layers_range = hparam_search_space["n_layers"]
@@ -99,6 +102,8 @@ class Objective:
         self.latent_dim = latent_dim
 
         self.log_dir = log_dir
+        self.checkpoint_dir = checkpoint_dir
+        self.keep_best = keep_best
 
     def __call__(self, trial: optuna.trial.Trial):
 
@@ -150,6 +155,11 @@ class Objective:
         else:
             tb_dir = None
 
+        if self.checkpoint_dir is not None:
+            checkpoint_path = self.checkpoint_dir / f"{trial.number:03}.pt"
+        else:
+            checkpoint_path = None
+
         model_trainer = ModelTrainer(
             model=model,
             n_epochs=self.n_epochs,
@@ -157,6 +167,7 @@ class Objective:
             lr=lr,
             beta_function=beta_function,
             tb_dir=tb_dir,
+            checkpoint_path=checkpoint_path
         )
 
         model_trainer.train(
@@ -168,12 +179,23 @@ class Objective:
 
         loss = min(model_trainer.validation_loss)
 
+        trial.model_ = model
+
         return loss
+
+    def callback(self, study, trial):
+
+        sorted_trials = sorted((trial for trial in study.trials if trial.value is not None), key= lambda x: x.value)
+        trials_to_keep = set(trial.number for trial in sorted_trials[:self.keep_best])
+        for checkpoint in Path(self.checkpoint_dir).iterdir():
+            if int(checkpoint.stem) not in trials_to_keep:
+                checkpoint.unlink()
+
 
 
 def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 
-    pruner = optuna.pruners.MedianPruner(n_warmup_steps=50, interval_steps=5)
+    pruner = optuna.pruners.MedianPruner(n_warmup_steps=n_trials//3, interval_steps=5)
     sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.load_study(
         study_name=study_name,
@@ -185,6 +207,7 @@ def _load_and_run(study_name, storage_name, objective, n_trials, seed):
         objective,
         n_trials=n_trials,
         catch=(ModelParameterError,),
+        callbacks=[objective.callback],
     )
 
 
@@ -198,6 +221,7 @@ def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 @click.option("--batch-size", type=int, default=16, show_default=True)
 @click.option("--latent_dim", type=int, default=3, show_default=True)
 @click.option("--seed", type=int, default=10)
+@click.option("--keep-best", type=int, default=10)
 def main(
     model,
     data,
@@ -208,6 +232,7 @@ def main(
     batch_size,
     latent_dim,
     seed,
+    keep_best,
 ):
 
     torch.manual_seed(seed)
@@ -237,9 +262,12 @@ def main(
         storage=storage_name,
         direction="minimize",
         load_if_exists=True,
+
     )
 
     log_dir = study_dir / "hp-search"
+    checkpoint_dir = study_dir / "checkpoints"
+
     objective = Objective(
         model_name=model,
         train_dataset=train_dataset,
@@ -248,6 +276,8 @@ def main(
         batch_size=batch_size,
         latent_dim=latent_dim,
         log_dir=log_dir,
+        checkpoint_dir=checkpoint_dir,
+        keep_best=keep_best
     )
 
     if n_trials == -1:
