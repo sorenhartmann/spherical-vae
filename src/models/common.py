@@ -89,6 +89,7 @@ class ModelTrainer:
         checkpoint_path=None,
         tb_label=None,
         tb_dir=None,
+        trial=None,
     ):
 
         self.model = model
@@ -111,6 +112,7 @@ class ModelTrainer:
         self.best_loss = None
         
         self.init_tb_writer(tb_dir=tb_dir, tb_label=tb_label )
+        self.trial = trial
 
 
     def init_tb_writer(self, tb_dir=None, tb_label=None):
@@ -221,6 +223,13 @@ class ModelTrainer:
             self.tb_writer.add_scalar("Loss/Train", self.train_loss[epoch], epoch)
             self.tb_writer.add_scalar("Loss/Validation", self.validation_loss[epoch], epoch)
             self.tb_writer.add_scalar("Average KL-term", self.kl_divergence[epoch], epoch)
+
+        if self.trial is not None:
+            self.trial.report(self.validation_loss[epoch], epoch)
+            if self.trial.should_prune():
+                raise optuna.TrialPruned()
+
+
 
     def after_training(self):
 

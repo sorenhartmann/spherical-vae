@@ -167,7 +167,8 @@ class Objective:
             lr=lr,
             beta_function=beta_function,
             tb_dir=tb_dir,
-            checkpoint_path=checkpoint_path
+            checkpoint_path=checkpoint_path,
+            trial=trial,
         )
 
         model_trainer.train(
