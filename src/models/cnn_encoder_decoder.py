@@ -1,169 +1,199 @@
-from torch.nn import Module, Sequential, Linear, ReLU,Conv2d, Dropout2d, BatchNorm2d, MaxPool2d
+import torch
+import numpy as np 
+from torch.nn import Module, Sequential, Linear, Sigmoid, ReLU,Conv2d, Dropout2d, BatchNorm2d, MaxPool2d, ConvTranspose2d
 
 def compute_conv_dim(dim_size, kernel_size, padding, stride):
     return int((dim_size - kernel_size + 2 * padding) / stride + 1)
 
-class Encoder(Module):
+def compute_conv_transpose_dim(dim_size, kernel_size, padding, dialation, stride):
+    return int((dim_size-1)*stride-2*padding+dialation*(kernel_size-1)+1)
 
-    def __init__(self, image_size, out_features):
+def compute_last_kernel_dim(out_dim_size, dim_size):
+    # For fixed stride=1, padding = 0, dialation=1 
+    return int(-dim_size + out_dim_size + 1)
+
+
+class Encoder(Module):
+    # kernel_size: list of kernel sizes
+    # padding_size: list of padding sizes
+    # stride: list of strides
+    def __init__(self, image_size,  out_features, kernel_size = None, padding_size = None,
+                 out_channel_size = None, stride = None,
+                 activation_function = None, ffnn_layer_size = None,
+                 dropout = None, dropout2d = None, maxpool = None):
 
         super().__init__()
+        
+        self.dropout = dropout
+        self.dropout2d = dropout2d
+
+        if activation_function is None:
+            activation_function = "ReLU"
+        self._activation_function = activation_function
+
+        ActFunc = getattr(torch.nn.modules.activation, activation_function)
+
+        if maxpool is None: 
+            maxpool = [2, 2]
+         
+        # CONVOLUTIONAL LAYERS ------------------------------------------------------------------
+        convs = []
         channels, height, width = image_size
-
-        # Parameters for CNN part 
-        conv_1_out_channels =  13 
-        conv_1_kernel_size = 7 
-        conv_1_stride = 1 
-        conv_1_pad    = 4
-
-        conv1_height = compute_conv_dim(height, conv_1_kernel_size, conv_1_pad, conv_1_stride)
-        conv1_width = compute_conv_dim(width, conv_1_kernel_size, conv_1_pad, conv_1_stride)
-
-        conv_2_out_channels =  3 
-        conv_2_kernel_size = 11 
-        conv_2_stride = 4 
-        conv_2_pad    = 3 
-
-        conv2_height = compute_conv_dim(conv1_height, conv_2_kernel_size, conv_2_pad, conv_2_stride)
-        conv2_width = compute_conv_dim(conv1_width, conv_2_kernel_size, conv_2_pad, conv_2_stride)
-
-        # Parameters for maxpool 
-        maxPool_kernel = 2
-        maxPool_stride = 2
-
-        maxPool_height = compute_conv_dim(conv2_height, maxPool_kernel, 0, maxPool_stride)
-        maxPool_width = compute_conv_dim(conv2_width, maxPool_kernel, 0, maxPool_stride)
-
-        self.linear_in_features = conv_2_out_channels*maxPool_height*maxPool_width       
-
-        self.CNN = Sequential(
-            #--------------------------
-            # First convolutional layer 
-            Conv2d(
+        for parameters in list(zip(out_channel_size, kernel_size, stride, padding_size)):
+            convs.append(Conv2d(
                 in_channels=channels,
-                out_channels=conv_1_out_channels,
-                kernel_size=conv_1_kernel_size,
-                stride=conv_1_stride,
-                padding=conv_1_pad),
-            # Batch normalization
-            BatchNorm2d(conv_1_out_channels),
-            Dropout2d(p = 0.5),
-            #Activation function
-            ReLU(),
+                out_channels=parameters[0],
+                kernel_size=parameters[1],
+                stride=parameters[2],
+                padding=parameters[3]
+            ))
+            convs.append(BatchNorm2d(parameters[0])) 
+           
+            if dropout is not None:
+                convs.append(Dropout2d(dropout2d))
+            
+            convs.append(ActFunc())
+            
+            height = compute_conv_dim(height, parameters[1], parameters[3], parameters[2])
+            width = compute_conv_dim(width, parameters[1], parameters[3], parameters[2])
+            channels = parameters[0]
 
-            # --------------------------
-            # Second convolutional layer 
-            Conv2d(
-                in_channels=conv_1_out_channels,
-                out_channels=conv_2_out_channels,
-                kernel_size=conv_2_kernel_size,
-                stride=conv_2_stride,
-                padding=conv_2_pad),
-            # Batch Normalization 
-            BatchNorm2d(conv_2_out_channels),
-            Dropout2d(p = 0.5),
-            # Activation function 
-            ReLU(),
+        convs.append(MaxPool2d(
+                kernel_size = maxpool[0],
+                stride = maxpool[1]
+            ))
+        height = compute_conv_dim(height, maxpool[0], 0, maxpool[1])
+        width = compute_conv_dim(width, maxpool[0], 0, maxpool[1])
 
-            #----------------------------
-            # Max Pooling 
-            MaxPool2d(
-                kernel_size = maxPool_kernel,
-                stride = maxPool_stride
-            )
-        )
+        self.CNN = Sequential(*convs)
 
-        self.ffnn = Sequential(
-            Linear(in_features=self.linear_in_features, out_features=100), 
-            ReLU(),
-            Linear(in_features=100, out_features=100),
-            ReLU(),
-            Linear(in_features=100, out_features=out_features),
-        )
+        self.linear_in_features = channels*height*width   
+        self.last_im_size = (channels, height, width)
+    
+        
+        # FEED FORWARD LAYERS -----------------------------------------------------------------
+        if ffnn_layer_size is None:
+            ffnn_layer_size = [100, 100]
+        self._ffnn_layer_size = ffnn_layer_size
+        
+        layers = []
+        in_size = self.linear_in_features
+        for out_size in ffnn_layer_size:
+            layers.append(Linear(in_size, out_size))
+            layers.append(ActFunc())
+            if dropout is not None:
+                layers.append(Dropout(dropout))
+            in_size = out_size
+        layers.append(Linear(in_size, out_features))
+
+        self.ffnn = Sequential(*layers)
 
     def forward(self, x):
-
         x = self.CNN(x)
         x = self.ffnn(x.view(-1, self.linear_in_features))
-
         return x
-
 
 class Decoder(Module):
 
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, reshape_features, out_features, kernel_size = None,
+                 padding_size = None, out_channel_size = None, stride = None,
+                 activation_function = None, ffnn_layer_size = None,
+                 dropout = None, dropout2d = None):
 
         super().__init__()
 
-        channels, height, width = image_size
+        self.reshape_features = reshape_features
 
-        # Parameters for CNN part 
-        conv_1_out_channels =  13 
-        conv_1_kernel_size = 7 
-        conv_1_stride = 1 
-        conv_1_pad    = 4
+        self.dropout = dropout
+        self.dropout2d = dropout2d
 
-        conv1_height = compute_conv_dim(height, conv_1_kernel_size, conv_1_pad, conv_1_stride)
-        conv1_width = compute_conv_dim(width, conv_1_kernel_size, conv_1_pad, conv_1_stride)
+        if activation_function is None:
+            activation_function = "ReLU"
+        self._activation_function = activation_function
 
-        conv_2_out_channels =  3 
-        conv_2_kernel_size = 11 
-        conv_2_stride = 4 
-        conv_2_pad    = 3 
+        ActFunc = getattr(torch.nn.modules.activation, activation_function)
 
-        conv2_height = compute_conv_dim(conv1_height, conv_2_kernel_size, conv_2_pad, conv_2_stride)
-        conv2_width = compute_conv_dim(conv1_width, conv_2_kernel_size, conv_2_pad, conv_2_stride)
+        # FEED FORWARD LAYERS -----------------------------------------------------------------
+        if ffnn_layer_size is None:
+            ffnn_layer_size = [100, 100]
+        self._ffnn_layer_size = ffnn_layer_size
+        
+        layers = []
+        in_size = in_features
+        for out_size in ffnn_layer_size:
+            layers.append(Linear(in_size, out_size))
+            layers.append(ActFunc())
+            if dropout is not None:
+                layers.append(Dropout(dropout))
+            in_size = out_size
+        layers.append(Linear(in_size, np.prod(reshape_features)))
 
-        # Parameters for maxpool 
-        maxPool_kernel = 2
-        maxPool_stride = 2
+        self.ffnn = Sequential(*layers)
 
-        maxPool_height = compute_conv_dim(conv2_height, maxPool_kernel, 0, maxPool_stride)
-        maxPool_width = compute_conv_dim(conv2_width, maxPool_kernel, 0, maxPool_stride)
-
-        self.linear_out_features = conv_2_out_channels*maxPool_height*maxPool_width  
-
-        self.ffnn = Sequential(
-            Linear(in_features=in_features, out_features=100),
-            ReLU(),
-            Linear(in_features=100, out_features=100),
-            ReLU(),
-            Linear(in_features=100, out_features=self.linear_out_features)
-        ) 
-
-        self.CNN = Sequential(
-            #--------------------------
-            # First convolutional layer 
-            Conv2d(
+        # TRANSPOSED CONVOLUTIONAL LAYERS ------------------------------------------------------
+        convs = []
+        channels, height, width = self.reshape_features
+        for parameters in list(zip(out_channel_size, kernel_size, stride, padding_size)):
+            convs.append(ConvTranspose2d(
                 in_channels=channels,
-                out_channels=conv_1_out_channels,
-                kernel_size=conv_1_kernel_size,
-                stride=conv_1_stride,
-                padding=conv_1_pad),
-            # Batch normalization
-            BatchNorm2d(conv_1_out_channels),
-            Dropout2d(p = 0.5),
-            #Activation function
-            ReLU(),
+                out_channels=parameters[0],
+                kernel_size=parameters[1],
+                stride=parameters[2],
+                padding=parameters[3]
+            ))
 
-            # --------------------------
-        )
+            convs.append(BatchNorm2d(parameters[0])) 
+           
+            if dropout is not None:
+                convs.append(Dropout2d(dropout2d))
+            
+            convs.append(ActFunc())
+
+            height = compute_conv_transpose_dim(height, parameters[1], parameters[3], 1, parameters[2])
+            width = compute_conv_transpose_dim(width, parameters[1], parameters[3], 1, parameters[2])
+            channels = parameters[0]
+            print(f"channels:{channels}, height:{height}, width:{width}")
+
+        # "Manuel" layer to ensure output image size, stride padding and dialation are default sizes
+        k1 = compute_last_kernel_dim(out_dim_size = out_features[1], dim_size = height)
+        k2 = compute_last_kernel_dim(out_dim_size = out_features[2], dim_size = width)
+        kernel_size = (k1,k2)
+
+        convs.append(ConvTranspose2d(
+            in_channels=channels,
+            out_channels=out_features[0],
+            kernel_size=kernel_size,
+        ))
+        convs.append(BatchNorm2d(out_features[0]))
+        convs.append(ActFunc())
+
+        self.CNN = Sequential(*convs)
 
     def forward(self, x):
-        
         x = self.ffnn(x)
-        print(x.shape)
-        x = self.CNN(x.view(x.shape[0], conv_2_out_channels, maxPool_height, maxPool_width))
-
+        new_dim = (x.shape[0],) + self.reshape_features
+        x = x.view(new_dim)
+        x = self.CNN(x)
         return x
 
+class CheckZeros(Module):
+    def forward(self, x):
+        pass
 
 if __name__ == "__main__":
     from src.data import SkinCancerDataset
-    data = SkinCancerDataset()
+    data = SkinCancerDataset(image_size=(225, 300))
     image_size = data.X.shape[1:]
 
-    net = Encoder(image_size, out_features = 4)
-    hej = Decoder(4, image_size)
+    net = Encoder(image_size, out_features = 4,  kernel_size = [3, 2], padding_size = [2, 1],
+                 out_channel_size = [7, 3], stride = [1,1],
+                 activation_function = None, ffnn_layer_size = None,
+                 dropout = None, dropout2d = None, maxpool = None)
+    
+    hej = Decoder(in_features = 4, reshape_features = net.last_im_size,
+                 out_features = image_size, kernel_size = [3, 2], padding_size =  [2, 1],
+                 out_channel_size = [7, 3], stride = [1,1],
+                 activation_function = None, ffnn_layer_size = None,
+                 dropout = None, dropout2d = None)
 
-    hej(net(data.X[0:10,:,:,:]))
+    tmp = hej(net(data.X[0:10,:,:,:]))
