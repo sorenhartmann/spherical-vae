@@ -188,9 +188,14 @@ class Objective:
 
         sorted_trials = sorted((trial for trial in study.trials if trial.value is not None), key= lambda x: x.value)
         trials_to_keep = set(trial.number for trial in sorted_trials[:self.keep_best])
-        for checkpoint in Path(self.checkpoint_dir).iterdir():
-            if int(checkpoint.stem) not in trials_to_keep:
-                checkpoint.unlink()
+        
+        try:
+            for checkpoint in Path(self.checkpoint_dir).iterdir():
+                if int(checkpoint.stem) not in trials_to_keep:
+                    checkpoint.unlink()
+        except FileNotFoundError:
+            pass
+            
 
 
 
