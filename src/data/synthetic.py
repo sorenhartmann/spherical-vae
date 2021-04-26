@@ -267,6 +267,9 @@ class SyntheticS2(torch.utils.data.Dataset):
         data = test if self.test else train
         return data
 
+    def to(self, device):
+        self.X_latent = self.X_latent.to(device)
+        self.X = self.X.to(device)
 
 if __name__ == "__main__":
 

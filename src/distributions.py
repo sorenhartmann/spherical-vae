@@ -1,3 +1,5 @@
+from torch._C import device
+from src.models.common import ModelParameterError
 import torch
 from torch import Tensor
 from torch.distributions import Beta, Distribution, Normal, constraints
@@ -5,8 +7,15 @@ from torch.distributions.kl import register_kl
 import math
 
 from scipy.special import iv, ive
-_log_pi = torch.log(torch.tensor(math.pi))
-_log_2 = torch.log(torch.tensor(2))
+
+cuda = torch.cuda.is_available()
+if cuda:
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+_log_pi = torch.log(torch.tensor(math.pi, device=device))
+_log_2 = torch.log(torch.tensor(2, device=device))
 
 
 class SphereUniform(Distribution):
@@ -25,7 +34,7 @@ class SphereUniform(Distribution):
             -log_surface_area
             if type(log_surface_area) == torch.Tensor
             else -torch.tensor(log_surface_area)
-        )
+        ).to(device)
 
         super().__init__(
             event_shape=torch.Size([dim + 1]),
@@ -42,7 +51,7 @@ class SphereUniform(Distribution):
         )
 
         norm_sample = torch.zeros(
-            sample_shape + self._batch_shape + self._event_shape
+            sample_shape + self._batch_shape + self._event_shape, device=device
         )
         norm_sample.normal_()
 
@@ -67,12 +76,13 @@ class VonMisesFisher(Distribution):
 
         self.mu = mu
         self.k = k
-        m = torch.tensor(mu.shape[-1])
+        m = torch.tensor(mu.shape[-1], device=device)
         self.m = m
 
         self._log_2_pi = torch.log(torch.tensor(2 * math.pi))
 
-        self.beta_dist = torch.distributions.Beta((m - 1) / 2, (m - 1) / 2)
+        m_double = m.type(torch.double)
+        self.beta_dist = torch.distributions.Beta((m_double - 1) / 2, (m_double - 1) / 2)
         self.uniform_subsphere_dist = SphereUniform(m - 2, batch_shape=batch_shape)
 
         super().__init__(
@@ -85,7 +95,7 @@ class VonMisesFisher(Distribution):
         with torch.no_grad():
             return self.rsample()
 
-    def rsample(self, sample_shape=torch.Size()) -> Tensor:
+    def rsample(self, sample_shape=torch.Size(), save_for_grad=False) -> Tensor:
 
         batch_shape = self._batch_shape
 
@@ -97,16 +107,28 @@ class VonMisesFisher(Distribution):
         a = ((m - 1) + 2 * k + torch.sqrt(4 * k ** 2 + (m - 1) ** 2)) / 4
         d = (4 * a * b) / (1 + b) - (m - 1) * torch.log(m - 1)
 
-        e = torch.tensor([1] + [0] * (m - 1))
+        if (b == 0).any():
+            raise ModelParameterError("Infinite loop in sampling, (b=0)")
+
+        e = torch.tensor([1] + [0] * (m - 1), device=device)
         u_prime = e - mu
         u = u_prime / u_prime.norm(dim=-1, keepdim=True)
-        U = torch.eye(m) - 2 * u.view(-1, m, 1) @ u.view(-1, 1, m)
+        U = torch.eye(m, device=device) - 2 * u.view(-1, m, 1) @ u.view(-1, 1, m)
 
         beta_dist = self.beta_dist
         uniform_subsphere_dist = self.uniform_subsphere_dist
 
-        done = torch.zeros(sample_shape + batch_shape, dtype=bool)
-        w = torch.zeros(sample_shape + batch_shape, dtype=torch.double)
+        done = torch.zeros(sample_shape + batch_shape, dtype=bool, device=device)
+        w = torch.zeros(
+            sample_shape + batch_shape, dtype=torch.double, device=device
+        )  # Can currently enter infinite loop if not double
+        if save_for_grad:
+            eps_accepted = torch.zeros(
+                sample_shape + batch_shape, dtype=torch.double, device=device
+            )
+            b_accepted = torch.zeros(
+                sample_shape + batch_shape, dtype=torch.double, device=device
+            )
 
         while True:
 
@@ -116,7 +138,7 @@ class VonMisesFisher(Distribution):
             if n_left == 0:
                 break
 
-            # TODO: probably can't train until kl term is there, k is too large 
+            # TODO: probably can't train until kl term is there, k is too large
             a_ = torch.masked_select(a, mask)
             b_ = torch.masked_select(b, mask)
             d_ = torch.masked_select(d, mask)
@@ -126,17 +148,26 @@ class VonMisesFisher(Distribution):
             w_proposal = (1 - (1 + b_) * epsilon) / (1 - (1 - b_) * epsilon)
             t = 2 * a_ * b_ / (1 - (1 - b_) * epsilon)
 
-            u = torch.rand(n_left)
+            u = torch.rand(n_left, device=device)
             accepted = (m - 1) * torch.log(t) - t + d_ >= torch.log(u)
 
             # Fix for mask inplace stuff with masked_select
             mask_clone = mask.clone()
 
-            mask_clone[mask] = accepted 
+            mask_clone[mask] = accepted
             w[mask_clone] = w_proposal[accepted]
+            if save_for_grad:
+                eps_accepted[mask_clone] = epsilon[accepted]
+                b_accepted[mask_clone] = b_[accepted]
+
             done[mask_clone] = True
 
-
+        if save_for_grad:
+            self.saved_for_grad = {
+                "eps" : eps_accepted,
+                "w" : w,
+                "b" : b_accepted,
+            }
         w = w.view(sample_shape + batch_shape + (1,))
 
         # Sample from subsphere
@@ -159,48 +190,71 @@ class VonMisesFisher(Distribution):
         log_C = (
             (m / 2 - 1) * torch.log(k)
             - (m / 2) * self._log_2_pi
-            - torch.log(ive(m / 2 - 1, k)) - k
+            - torch.log(ive(m / 2 - 1, k))
+            - k
         )
 
         return log_C + k * torch.sum(self.mu * value, -1)
 
 
-def _vmf_uniform_kl(k, m):
+class vMFUniformKL(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, k: Tensor, m: Tensor):
 
-    log_C = (
-    (m / 2 - 1) * torch.log(k)
-    - (m / 2) * (_log_pi + _log_2)
-    - torch.log(ive(m / 2 - 1, k)) - k
-    )
+        if device == torch.device("cpu"):
+            _im_2_minus_1 = ive(m / 2 - 1, k)
+            _im_2_minus_2 = ive(m / 2 - 2, k)
+            _im_2_plus_1 = ive(m / 2 + 1, k)
+            _im_2 = ive(m / 2, k)
+        else:
+            k_cpu = k.cpu()
+            m_cpu = m.cpu()
+            # k_cpu.to(device)
+            # m_cpu.to(device)
+            _im_2_minus_1 = ive(m_cpu / 2 - 1, k_cpu)
+            _im_2_minus_2 = ive(m_cpu / 2 - 2, k_cpu)
+            _im_2_plus_1 = ive(m_cpu / 2 + 1, k_cpu)
+            _im_2 = ive(m_cpu / 2, k_cpu)
+            _im_2_minus_1 = _im_2_minus_1.to(device)
+            _im_2_minus_2 = _im_2_minus_2.to(device)
+            _im_2_plus_1 = _im_2_plus_1.to(device)
+            _im_2 = _im_2.to(device)
 
-    return k * (ive(m/2, k)/ive(m/2-1, k)) + log_C + m/2 * _log_pi + _log_2 - torch.lgamma(m / 2)
-
-
-def _d_vmf_uniform_kl(k, m):
-
-    _im_2_1 = ive(m/2-1, k)
-    _im_2 = ive(m/2, k)
-    
-    return 1/2 * k * (
-        (ive(m/2+1, k) / _im_2_1) 
-        - (_im_2 * (ive(m/2-2, k) + _im_2)) / (_im_2_1**2) 
-        + 1
+        log_C = (
+            (m / 2 - 1) * torch.log(k)
+            - (m / 2) * (_log_pi + _log_2)
+            - torch.log(_im_2_minus_1)
+            - k
         )
 
-class vMFUniformKL(torch.autograd.Function):
+        result = (
+            k * (_im_2 / _im_2_minus_1)
+            + log_C
+            + m / 2 * _log_pi
+            + _log_2
+            - torch.lgamma(m / 2)
+        )
 
-    @staticmethod
-    def forward(ctx, k, m):
-        result = _vmf_uniform_kl(k, m)
-        ctx.save_for_backward(k, m)
+        ctx.save_for_backward(k, m, _im_2_minus_1, _im_2_minus_2, _im_2_plus_1, _im_2)
         return result
 
     @staticmethod
     def backward(ctx, grad_output):
-        k, m = ctx.saved_tensors
-        kl_grad = _d_vmf_uniform_kl(k, m)
+
+        k, m, _im_2_minus_1, _im_2_minus_2, _im_2_plus_1, _im_2 = ctx.saved_tensors
+
+        # fmt: off
+        kl_grad = ( 1 / 2 * k * (
+            (_im_2_plus_1 / _im_2_minus_1)
+            - (_im_2 * (_im_2_minus_2 + _im_2)) / (_im_2_minus_1 ** 2)
+            + 1
+            )
+        )
+        # fmt: on
+
         out = grad_output * kl_grad
         return out, None
+
 
 @register_kl(VonMisesFisher, SphereUniform)
 def vmf_uniform_kl(vmf, su):
@@ -208,7 +262,14 @@ def vmf_uniform_kl(vmf, su):
     m = vmf.m
     return vMFUniformKL.apply(k, m)
 
+
 if __name__ == "__main__":
-    k = torch.tensor([1,200,3,4], dtype = torch.double, requires_grad = True)
-    m = torch.tensor([5, 7, 2, 19])
-    assert(torch.autograd.gradcheck(vMFUniformKL.apply, (k, m)))
+
+    k = torch.tensor(
+        [1, 200, 3, 4], dtype=torch.double, requires_grad=True, device=device
+    )
+    m = torch.tensor([5, 7, 2, 19], device=device)
+    assert torch.autograd.gradcheck(vMFUniformKL.apply, (k, m))
+
+    
+    assert torch.autograd.gradcheck(vMFUniformKL.apply, (k, m))
