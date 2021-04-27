@@ -5,8 +5,13 @@ from torch.nn import Module, Sequential, Linear, Sigmoid, ReLU,Conv2d, Dropout2d
 def compute_conv_dim(dim_size, kernel_size, padding, stride):
     return int((dim_size - kernel_size + 2 * padding) / stride + 1)
 
-def compute_conv_transpose_dim(dim_size, kernel_size, padding, dialation, stride):
-    return int((dim_size-1)*stride-2*padding+dialation*(kernel_size-1)+1)
+def compute_conv_transpose_out_dim(in_dim, kernel_size, padding, dialation, stride):
+    return int((in_dim-1)*stride-2*padding+dialation*(kernel_size-1)+1)
+
+def compute_conv_transpose_in_dim(out_dim, kernel_size, padding, dialation, stride):
+    out_dim = (in_dim-1)*stride-2*padding+dialation*(kernel_size-1)+1
+    
+    return 
 
 def compute_last_kernel_dim(out_dim_size, dim_size):
     # For fixed stride=1, padding = 0, dialation=1 
@@ -152,7 +157,6 @@ class Decoder(Module):
             height = compute_conv_transpose_dim(height, parameters[1], parameters[3], 1, parameters[2])
             width = compute_conv_transpose_dim(width, parameters[1], parameters[3], 1, parameters[2])
             channels = parameters[0]
-            print(f"channels:{channels}, height:{height}, width:{width}")
 
         # "Manuel" layer to ensure output image size, stride padding and dialation are default sizes
         k1 = compute_last_kernel_dim(out_dim_size = out_features[1], dim_size = height)
@@ -161,11 +165,9 @@ class Decoder(Module):
 
         convs.append(ConvTranspose2d(
             in_channels=channels,
-            out_channels=out_features[0],
+            out_channels=out_features[0]*2,
             kernel_size=kernel_size,
         ))
-        convs.append(BatchNorm2d(out_features[0]))
-        convs.append(ActFunc())
 
         self.CNN = Sequential(*convs)
 
