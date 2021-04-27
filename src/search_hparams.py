@@ -1,11 +1,13 @@
 import multiprocessing
 import os
 from pathlib import Path
+from src.data.skin_cancer import SkinCancerDataset
 
 from torch.utils.data.dataset import Subset, random_split
-from src.models.common import ModelParameterError, ModelTrainer
+from src.models.common import BetaFunction, ModelParameterError, ModelTrainer
 from src.models.vae import VariationalAutoencoder
 from src.models.svae import SphericalVAE
+from src.models.convolutional import ConvVariationalAutoencoder, ConvSphericalVAE
 import time
 import click
 from src.data import SyntheticS2, MotionCaptureDataset
@@ -28,14 +30,16 @@ hparam_search_space = {
 }
 
 
-def get_model_class(model_name):
+def get_model_class(model_name, is_conv=False):
 
-    if model_name == "vae":
+    if model_name == "vae" and not is_conv:
         return VariationalAutoencoder
-    elif model_name == "svae":
+    elif model_name == "vae" and is_conv:
+        return ConvVariationalAutoencoder
+    elif model_name == "svae" and not is_conv:
         return SphericalVAE
-    else:
-        raise ValueError
+    elif model_name == "svae" and is_conv:
+        return ConvSphericalVAE
 
 
 def get_dataset(dataset_name):
@@ -45,32 +49,24 @@ def get_dataset(dataset_name):
     elif "mocap" in dataset_name:
         _, subject_id = dataset_name.split("-")
         return MotionCaptureDataset(subject_id)
-    else:
-        raise ValueError
+    elif dataset_name == "skin-cancer":
+        return SkinCancerDataset(image_size=(225, 300))
 
 
 class Objective:
-
     def __init__(
         self,
         model_name,
         train_dataset,
         validation_dataset,
         n_epochs=100,
-        batch_size=16,
-        latent_dim=3,
         log_dir=None,
         checkpoint_dir=None,
         keep_best=10,
+        batch_size=16,
+        latent_dim=3,
     ):
 
-        self.n_layers_range = hparam_search_space["n_layers"]
-        self.layer_size_range = hparam_search_space["layer_size"]
-        self.lr_range = hparam_search_space["lr"]
-        self.dropout_range = hparam_search_space["dropout"]
-        self.beta_0_range = hparam_search_space["beta_0"]
-
-        self.ModelClass = get_model_class(model_name)
         self.train_dataset = train_dataset
         self.validation_dataset = validation_dataset
 
@@ -78,43 +74,22 @@ class Objective:
         self.batch_size = batch_size
         self.latent_dim = latent_dim
 
-        self.log_dir = log_dir
-        self.checkpoint_dir = checkpoint_dir
-        self.keep_best = keep_best
-
-    def __call__(self, trial: optuna.trial.Trial):
-
-        encoder_n_layers = trial.suggest_int("n_layers", *self.n_layers_range)
-        encoder_layers_sizes = []
-        for i in range(encoder_n_layers):
-            encoder_layers_sizes.append(
-                trial.suggest_int(f"layer_size_{i+1}", *self.layer_size_range)
-            )
-
-        decoder_layers_sizes = encoder_layers_sizes[::-1]
-
-        dropout = trial.suggest_float("dropout", *self.dropout_range)
-
-        if type(self.train_dataset) is Subset:
-            n_features = self.train_dataset.dataset.n_features
+        if type(train_dataset) is Subset:
+            if hasattr(self.train_dataset.dataset, "n_features"):
+                self.n_features = self.train_dataset.dataset.n_features
+            if hasattr(self.train_dataset.dataset, "image_size"):
+                self.image_size = self.train_dataset.dataset.image_size
+            self.dataset_name = self.train_dataset.dataset.name
         else:
-            n_features = self.train_dataset.n_features
+            if hasattr(self.train_dataset, "n_features"):
+                self.n_features = self.train_dataset.n_features
+            if hasattr(self.train_dataset, "image_size"):
+                self.image_size = self.train_dataset.image_size
+            self.dataset_name = self.train_dataset.name
 
-        model = self.ModelClass(
-            feature_dim=n_features,
-            latent_dim=self.latent_dim,
-            encoder_params={
-                "layer_sizes": encoder_layers_sizes,
-                "dropout": dropout,
-                "activation_function": "Tanh",
-            },
-            decoder_params={
-                "layer_sizes": decoder_layers_sizes,
-                "dropout": dropout,
-                "activation_function": "Tanh",
-            },
+        self.ModelClass = get_model_class(
+            model_name, is_conv=self.dataset_name == "skin-cancer"
         )
-        model.to(device)
 
         for dataset in [self.train_dataset, self.validation_dataset]:
             if type(dataset) is Subset:
@@ -122,32 +97,59 @@ class Objective:
             else:
                 dataset.to(device)
 
-        lr = trial.suggest_loguniform("lr", *self.lr_range)
+        self.log_dir = log_dir
+        self.checkpoint_dir = checkpoint_dir
+        self.keep_best = keep_best
 
-        beta_0 = trial.suggest_loguniform("beta_0", *self.beta_0_range)
-        beta_function = BetaFunction(beta_0, self.n_epochs)
+    def regular_objective(self, trial):
 
+        # ----- Suggest parameters -----
+        n_layers = trial.suggest_int("n_layers", 1, 5)
+        lr = trial.suggest_loguniform("lr", 1e-4, 1e-2)
+        dropout = trial.suggest_float("dropout", 0.1, 0.5)
+        beta_0 = trial.suggest_loguniform("beta_0", 1e-3, 1)
+        layer_sizes = []
+        for i in range(n_layers):
+            layer_sizes.append(trial.suggest_int(f"layer_size_{i+1}", 100, 1000))
+
+        # ----- Setup model ----
+        model = self.ModelClass(
+            feature_dim=self.n_features,
+            latent_dim=self.latent_dim,
+            encoder_params={
+                "layer_sizes": layer_sizes,
+                "dropout": dropout,
+                "activation_function": "Tanh",
+            },
+            decoder_params={
+                "layer_sizes": layer_sizes[::-1],
+                "dropout": dropout,
+                "activation_function": "Tanh",
+            },
+        )
+        model.to(device)
+
+        # ----- Setup Tensorboard and checkpoints -----
         if self.log_dir is not None:
             tb_dir = self.log_dir / f"{trial.number:03}"
         else:
             tb_dir = None
-
         if self.checkpoint_dir is not None:
             checkpoint_path = self.checkpoint_dir / f"{trial.number:03}.pt"
         else:
             checkpoint_path = None
 
+        # ----- Train model ----
         model_trainer = ModelTrainer(
             model=model,
             n_epochs=self.n_epochs,
             batch_size=self.batch_size,
             lr=lr,
-            beta_function=beta_function,
+            beta_function=BetaFunction(beta_0, self.n_epochs),
             tb_dir=tb_dir,
             checkpoint_path=checkpoint_path,
             trial=trial,
         )
-
         model_trainer.train(
             train_dataset=self.train_dataset,
             validation_dataset=self.validation_dataset,
@@ -155,28 +157,127 @@ class Objective:
             progress_bar=False,
         )
 
+        # ----- Report loss -----
         loss = min(model_trainer.validation_loss)
-
         return loss
+
+    def conv_objective(self, trial):
+
+        # ----- Suggest parameters -----
+        ffnn_layers = trial.suggest_int("n_ffnn_layers", 1, 5)
+        lr = trial.suggest_loguniform("lr", 1e-4, 1e-2)
+        dropout = trial.suggest_float("dropout", 0.1, 0.5)
+        beta_0 = trial.suggest_loguniform("beta_0", 1e-3, 1)
+        ffnn_layers_size = []
+        for i in range(ffnn_layers):
+            ffnn_layers_size.append(
+                trial.suggest_int(f"ffnn_layers_size_{i+1}", 100, 1000)
+            )
+
+        conv_layers = trial.suggest_int("n_conv_layers", 1, 4)
+
+        encoder_kernel_size = []
+        encoder_stride = []
+        encoder_out_channel_size = []
+        encoder_padding_size = []
+
+        for i in range(conv_layers):
+            encoder_kernel_size.append(trial.suggest_int(f"kernel_size_{i+1}", 2, 7))
+            encoder_stride.append(trial.suggest_int(f"stride_{i+1}", 1, 5))
+            encoder_out_channel_size.append(
+                trial.suggest_int(f"out_channels_{i+1}", 2, 10)
+            )
+            encoder_padding_size.append(trial.suggest_int(f"padding_size_{i+1}", 0, 7))
+
+        maxpool_kernel = trial.suggest_int("maxpool_kernel", 2, 4)
+        maxpool_stride = trial.suggest_int("maxpool_stride", 2, 4)
+
+        # ----- Setup model ----
+        model = self.ModelClass(
+            image_size=(3,) + self.image_size,
+            latent_dim=self.latent_dim,
+            encoder_params={
+                "kernel_size": encoder_kernel_size,
+                "stride": encoder_stride,
+                "out_channel_size": encoder_out_channel_size,
+                "padding_size": encoder_padding_size,
+                "activation_function": "Tanh",
+                "ffnn_layer_size": ffnn_layers_size,
+                "dropout": dropout,
+                "dropout2d": dropout,
+                "maxpool_kernel": maxpool_kernel,
+                "maxpool_stride": maxpool_stride,
+            },
+            decoder_params={
+                "kernel_size": encoder_kernel_size[::-1],
+                "stride": encoder_stride[::-1],
+                "in_channel_size": encoder_out_channel_size[::-1],
+                "ffnn_layer_size": ffnn_layers_size[::-1],
+                "dropout": dropout,
+                "dropout2d": dropout,
+                "activation_function": "Tanh",
+            },
+        )
+        model.to(device)
+
+        # ----- Setup Tensorboard and checkpoints -----
+        if self.log_dir is not None:
+            tb_dir = self.log_dir / f"{trial.number:03}"
+        else:
+            tb_dir = None
+        if self.checkpoint_dir is not None:
+            checkpoint_path = self.checkpoint_dir / f"{trial.number:03}.pt"
+        else:
+            checkpoint_path = None
+
+        # ----- Train model ----
+        model_trainer = ModelTrainer(
+            model=model,
+            n_epochs=self.n_epochs,
+            batch_size=self.batch_size,
+            lr=lr,
+            beta_function=BetaFunction(beta_0, self.n_epochs),
+            tb_dir=tb_dir,
+            checkpoint_path=checkpoint_path,
+            trial=trial,
+        )
+        model_trainer.train(
+            train_dataset=self.train_dataset,
+            validation_dataset=self.validation_dataset,
+            random_state=None,
+            progress_bar=False,
+        )
+
+        # ----- Report loss -----
+        loss = min(model_trainer.validation_loss)
+        return loss
+
+    def __call__(self, trial: optuna.trial.Trial):
+
+        if self.dataset_name in ["mocap", "synthetic"]:
+            return self.regular_objective(trial)
+        elif self.dataset_name == "skin-cancer":
+            return self.conv_objective(trial)
 
     def callback(self, study, trial):
 
-        sorted_trials = sorted((trial for trial in study.trials if trial.value is not None), key= lambda x: x.value)
-        trials_to_keep = set(trial.number for trial in sorted_trials[:self.keep_best])
-        
+        sorted_trials = sorted(
+            (trial for trial in study.trials if trial.value is not None),
+            key=lambda x: x.value,
+        )
+        trials_to_keep = set(trial.number for trial in sorted_trials[: self.keep_best])
+
         try:
             for checkpoint in Path(self.checkpoint_dir).iterdir():
                 if int(checkpoint.stem) not in trials_to_keep:
                     checkpoint.unlink()
         except FileNotFoundError:
             pass
-            
-
 
 
 def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 
-    pruner = optuna.pruners.MedianPruner(n_warmup_steps=n_trials//3, interval_steps=5)
+    pruner = optuna.pruners.MedianPruner(n_warmup_steps=n_trials // 3, interval_steps=5)
     sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.load_study(
         study_name=study_name,
@@ -249,11 +350,16 @@ def main(
         storage=storage_name,
         direction="minimize",
         load_if_exists=True,
-
     )
 
     log_dir = study_dir / "hp-search"
     checkpoint_dir = study_dir / "checkpoints"
+
+    model_parameters = {}
+    if batch_size is not None:
+        model_parameters["batch_size"] = batch_size
+    if latent_dim is not None:
+        model_parameters["latent_dim"] = latent_dim
 
     objective = Objective(
         model_name=model,
@@ -264,7 +370,7 @@ def main(
         latent_dim=latent_dim,
         log_dir=log_dir,
         checkpoint_dir=checkpoint_dir,
-        keep_best=keep_best
+        keep_best=keep_best,
     )
 
     if n_trials == -1:
@@ -291,5 +397,5 @@ def main(
 
 
 if __name__ == "__main__":
-    
+
     main()

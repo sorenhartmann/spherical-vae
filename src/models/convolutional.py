@@ -40,7 +40,16 @@ class ConvEncoder(Module):
 
         super().__init__()
 
+        self._kernel_size = kernel_size
+        self._stride = stride
+        self._out_channel_size = out_channel_size
+        self._padding_size = padding_size
         self._activation_function = activation_function
+        self._ffnn_layer_size = ffnn_layer_size
+        self._dropout = dropout
+        self._dropout2d = dropout2d
+        self._maxpool_kernel = maxpool_kernel
+        self._maxpool_stride = maxpool_stride
 
         ActFunc = getattr(torch.nn.modules.activation, activation_function)
 
@@ -120,6 +129,14 @@ class ConvDecoder(Module):
     ):
 
         super().__init__()
+
+        self._kernel_size = kernel_size
+        self._stride = stride
+        self._in_channel_size = in_channel_size
+        self._activation_function = activation_function
+        self._ffnn_layer_size = ffnn_layer_size
+        self._dropout = dropout
+        self._dropout2d = dropout2d
 
         ActFunc = getattr(torch.nn.modules.activation, activation_function)
 
@@ -280,26 +297,17 @@ if __name__ == "__main__":
     )
 
     scvae = ConvSphericalVAE(
-        image_size=image_size, latent_dim=10
+        image_size=image_size, latent_dim=3
     )
     mt = ModelTrainer(
         scvae,
-        n_epochs=10,
+        n_epochs=5,
+        lr=0.0001,
         tb_label="cnn-test-spherical",
-        beta_function=BetaFunction(0.001, 10)
+        beta_function=BetaFunction(1, 10)
     )
     mt.train(train_dataset, validation_dataset)
 
-    cvae = ConvVariationalAutoencoder(
-        image_size=image_size, latent_dim=10
-    )
-    mt = ModelTrainer(
-        cvae,
-        n_epochs=10,
-        tb_label="cnn-test",
-        beta_function=BetaFunction(0.001, 10)
-    )
-    mt.train(train_dataset, validation_dataset)
 
 
 

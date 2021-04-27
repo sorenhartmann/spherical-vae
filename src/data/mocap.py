@@ -31,6 +31,7 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
 
     train_perc = 0.7
     raw_url = "http://mocap.cs.cmu.edu/allasfamc.zip"
+    name = "mocap"
 
     def __init__(
         self,

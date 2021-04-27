@@ -11,6 +11,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
 
     ham_shape = (3, 450, 600)
     train_perc = 0.7
+    name = "skin-cancer"
 
     def __init__(self, subsample=0.1, test=False, image_size=None):
         if image_size is None:

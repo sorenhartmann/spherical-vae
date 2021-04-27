@@ -247,8 +247,6 @@ class ModelTrainer:
             if self.trial.should_prune():
                 raise optuna.TrialPruned()
 
-
-
     def after_training(self):
 
         ## Log hyper parameters to tensorboard
@@ -265,14 +263,39 @@ class ModelTrainer:
 
 
 def get_hparams(model):
-    return {
-        "latent_dim": model.latent_dim,
-        "encoder__layer_sizes": str(model.encoder._layer_sizes),
-        "encoder__n_layers": len(model.encoder._layer_sizes),
-        "encoder__activation_function": model.encoder._activation_function,
-        "encoder__dropout": model.encoder.dropout,
-        "decoder__layer_sizes": str(model.decoder._layer_sizes),
-        "decoder__n_layers": len(model.decoder._layer_sizes),
-        "decoder__activation_function": model.decoder._activation_function,
-        "decoder__dropout": model.decoder.dropout,
+    parameters = {
+        "latent_dim": lambda x: x.latent_dim,
+        "encoder_layer_sizes": lambda x: str(x.encoder._layer_sizes),
+        "encoder_n_layers": lambda x: len(x.encoder._layer_sizes),
+        "encoder_activation_function": lambda x: x.encoder._activation_function,
+        "encoder_dropout": lambda x: x.encoder.dropout,
+        "decoder_layer_sizes": lambda x: str(x.decoder._layer_sizes),
+        "decoder_n_layers": lambda x: len(x.decoder._layer_sizes),
+        "decoder_activation_function": lambda x: x.decoder._activation_function,
+        "decoder_dropout": lambda x: x.decoder.dropout,
+        ## Conv.
+        "encoder_kernel_size" : lambda x: str(x.encoder._kernel_size),
+        "encoder_stride" : lambda x: str(x.encoder._stride),
+        "encoder_out_channel_size" : lambda x: str(x.encoder._out_channel_size),
+        "encoder_padding_size" : lambda x: str(x.encoder._padding_size),
+        "encoder_activation_function" : lambda x: x.encoder._activation_function,
+        "encoder_dropout2d" : lambda x: x.encoder._dropout2d,
+        "encoder_ffnn_layer_size" : lambda x: str(x.encoder._ffnn_layer_size),
+        "encoder_ffnn_n_layers" : lambda x: len(x.encoder._ffnn_layer_size),
+        "encoder_maxpool_kernel" : lambda x: x.encoder._maxpool_kernel,
+        "encoder_maxpool_stride" : lambda x: x.encoder._maxpool_stride,
+        "decoder_kernel_size" : lambda x: str(x.decoder._kernel_size),
+        "decoder_stride" : lambda x: str(x.decoder._stride),
+        "decoder_in_channel_size" : lambda x: str(x.decoder._in_channel_size),
+        "decoder_ffnn_layer_size" : lambda x: str(x.decoder._ffnn_layer_size),
+        "decoder_fnnn_n_layers" : lambda x: len(x.decoder._ffnn_layer_size),
+        "decoder_dropout2d" : lambda x: x.decoder._dropout2d,
     }
+    hparams = {}
+    for name, getter in parameters.items():
+        try:
+            hparams[name] = getter(model)
+        except AttributeError:
+            pass
+
+    return hparams

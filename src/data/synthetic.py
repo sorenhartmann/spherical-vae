@@ -200,6 +200,8 @@ class SyntheticS2(torch.utils.data.Dataset):
     n_features = 50
     seed = 60220
 
+    name = "synthetic"
+
     def __init__(self, test=False):
 
         self.test = test
