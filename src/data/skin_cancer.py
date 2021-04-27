@@ -38,7 +38,7 @@ class SkinCancerDataset(torch.utils.data.Dataset):
         self.image_files = data["image_files"]
 
     def __len__(self):
-        return self.X.shape[-1]
+        return self.X.shape[0]
 
     def __getitem__(self, index):
         return self.X[index, :, :, :]
@@ -54,8 +54,9 @@ class SkinCancerDataset(torch.utils.data.Dataset):
         ham_list = list(ham1.iterdir()) + list(ham2.iterdir())
 
         n_samples = int(len(ham_list)*self.subsample)
+
+        random.seed(270421)
         ham_samples = random.sample(ham_list, k = n_samples) 
-        #TODO: vi sætter ikke et seed?
 
         X = torch.zeros((n_samples,) + (3,) + self.image_size)
 
@@ -92,6 +93,13 @@ class SkinCancerDataset(torch.utils.data.Dataset):
 
         data = test if self.test else train
         return data
+
+    def to(self, device):
+        self.X = self.X.to(device)
+
+    def to_dtype(self, device):
+        self.X = self.X.to(device)
+
 
 if __name__ == "__main__": 
  

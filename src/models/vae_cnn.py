@@ -22,15 +22,15 @@ class ConvolutionalVariationalAutoencoder(nn.Module):
         self.latent_features = latent_features
 
         self.encoder = Encoder(image_size, out_features = latent_features*2,  kernel_size = [3, 2], 
-                               padding_size = [2, 1], out_channel_size = [7, 3], stride = [1,1],
+                               padding_size = [1, 1], out_channel_size = [7, 3], stride = [1,1],
                                activation_function = None, ffnn_layer_size = None,
                                dropout = None, dropout2d = None, maxpool = None)
     
         self.decoder = Decoder(in_features = latent_features,
                  reshape_features = self.encoder.last_im_size,
-                 out_features = image_size, kernel_size = [3, 2], padding_size =  [2, 1],
+                 out_features = image_size, kernel_size = [3, 2], padding_size =  [1, 1],
                  out_channel_size = [7, 3], stride = [1,1],
-                 activation_function = None, ffnn_layer_size = None,
+                 activation_function = None, ffnn_layer_size = [100, 1000],
                  dropout = None, dropout2d = None)
         
         self.register_buffer('prior_params', torch.zeros(torch.Size([1, 2*latent_features])))
@@ -55,9 +55,9 @@ class ConvolutionalVariationalAutoencoder(nn.Module):
     def observation_model(self, z: Tensor) -> Distribution:
         """return the distribution `p(x|z)`"""
         h_z = self.decoder(z)
-        mu, log_sigma = h_z.chunk(2, dim=-1)
+        mu, log_sigma = h_z.chunk(2, dim=1)
 
-        return Normal(mu, log_sigma.exp())
+        return Independent(Normal(mu, log_sigma.exp()),3)
 
     def forward(self, x):
         # define the posterior q(z|x) / encode x into q(z|x)
@@ -74,6 +74,21 @@ class ConvolutionalVariationalAutoencoder(nn.Module):
     
         return {'px': px, 'pz': pz, 'qz': qz, 'z': z}
 
+    def get_loss(self, x, return_kl=False, beta = 1.):
+        output = self(x)
+        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        kl_term = kl_divergence(Independent(qz, 1), Independent(pz, 1))
+        
+        loss = -px.log_prob(x) + beta * kl_term
+
+        if not return_kl:
+            return loss.mean()
+        else:
+            return loss.mean(), kl_term.mean()
+
+
+
+
 if __name__ == "__main__":
     
     torch.manual_seed(123)
@@ -83,6 +98,20 @@ if __name__ == "__main__":
 
     ham_vae = ConvolutionalVariationalAutoencoder(image_size=image_size, latent_features=3)
 
-    ham_vae(data.X[:10,:,:,:])
+    with torch.autograd.profiler.profile(record_shapes = True) as prof:
+        loss = ham_vae.get_loss(data.X[:10,:,:,:])
+    
+    print(prof.key_averages().table(sort_by ="cpu_time_total", row_limit = 10))
+    #print(loss)
+    #loss.backward() 
+    #with torch.no_grad():
+    #    loss = ham_vae.get_loss(data.X[:10,:,:,:])
+    #    print(loss)
+
+
+
+
+
+
 
 
