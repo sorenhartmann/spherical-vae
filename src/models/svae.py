@@ -1,13 +1,11 @@
-from src.models.common import Decoder, Encoder, ModelParameterError
 import torch
-from torch.distributions import Distribution, Normal
+from scipy.special import ive
+from src.distributions import SphereUniform, VonMisesFisher
+from src.models.common import Decoder, Encoder, ModelParameterError
+from torch.distributions import Distribution, Independent, Normal
 from torch.distributions.kl import kl_divergence
 from torch.nn import Module
 from torch.tensor import Tensor
-from src.distributions import VonMisesFisher, SphereUniform
-from torch.utils.data import random_split
-from scipy.special import ive
-
 
 class SphericalVAE(Module):
     def __init__(
@@ -57,8 +55,7 @@ class SphericalVAE(Module):
         """return the distribution `p(x|z)`"""
         h_z = self.decoder(z)
         mu, log_sigma = h_z.chunk(2, dim=-1)
-
-        return Normal(mu, log_sigma.exp())
+        return Independent(Normal(mu, log_sigma.exp()), 1)
 
     def forward(self, x):
         # define the posterior q(z|x) / encode x into q(z|x)
@@ -84,7 +81,6 @@ class SphericalVAE(Module):
         else:
             return loss, loss.kl_term.mean()
 
-
 class CorrectedLoss:
     """ Corrects the gradient of the loss """
 
@@ -95,11 +91,12 @@ class CorrectedLoss:
         output = self.model(batch)
         self.px, self.pz, self.qz, self.z = [output[k] for k in ["px", "pz", "qz", "z"]]
         self.kl_term = kl_divergence(self.qz, self.pz)
-        self.log_px = self.px.log_prob(batch).sum(-1)
+        self.log_px = self.px.log_prob(batch)
         loss = -self.log_px + beta*self.kl_term
         self.loss = loss.mean()
 
     def item(self):
+
         return self.loss.item()
 
     def backward(self):
@@ -146,3 +143,5 @@ class CorrectedLoss:
         torch.autograd.backward(qz.k, grad_tensors=loss_d_k, retain_graph=True)
         torch.autograd.backward(qz.mu, grad_tensors=loss_d_mu, retain_graph=True)
         torch.autograd.backward(self.model.decoder.parameters(), grad_tensors=loss_d_decoder)
+
+

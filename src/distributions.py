@@ -81,8 +81,8 @@ class VonMisesFisher(Distribution):
 
         self._log_2_pi = torch.log(torch.tensor(2 * math.pi))
 
-        m_double = m.type(torch.double)
-        self.beta_dist = torch.distributions.Beta((m_double - 1) / 2, (m_double - 1) / 2)
+        m_float = m.type(self.mu.dtype)
+        self.beta_dist = torch.distributions.Beta((m_float - 1) / 2, (m_float - 1) / 2)
         self.uniform_subsphere_dist = SphereUniform(m - 2, batch_shape=batch_shape)
 
         super().__init__(
@@ -120,14 +120,14 @@ class VonMisesFisher(Distribution):
 
         done = torch.zeros(sample_shape + batch_shape, dtype=bool, device=device)
         w = torch.zeros(
-            sample_shape + batch_shape, dtype=torch.double, device=device
-        )  # Can currently enter infinite loop if not double
+            sample_shape + batch_shape, dtype=mu.dtype, device=device
+        ) 
         if save_for_grad:
             eps_accepted = torch.zeros(
-                sample_shape + batch_shape, dtype=torch.double, device=device
+                sample_shape + batch_shape, dtype=mu.dtype, device=device
             )
             b_accepted = torch.zeros(
-                sample_shape + batch_shape, dtype=torch.double, device=device
+                sample_shape + batch_shape, dtype=mu.dtype, device=device
             )
 
         while True:

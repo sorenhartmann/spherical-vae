@@ -49,29 +49,6 @@ def get_dataset(dataset_name):
         raise ValueError
 
 
-class BetaFunction:
-    def __init__(self, beta_0, n_epochs, start=0.25, end=0.75) -> None:
-
-        self.beta_0 = beta_0
-        self.n_epochs = n_epochs
-        self.start = start * n_epochs
-        self.end = end * n_epochs
-
-        self.a = 2 * (1 - beta_0) / self.n_epochs
-        self.b = beta_0 - self.a * self.n_epochs / 4
-
-        self.elbo_valid_after = self.end
-
-    def __call__(self, i):
-
-        if i < self.start:
-            return self.beta_0
-        elif i >= self.start and i < self.end:
-            return self.a * i + self.b
-        else:
-            return 1
-
-
 class Objective:
 
     def __init__(
@@ -179,8 +156,6 @@ class Objective:
         )
 
         loss = min(model_trainer.validation_loss)
-
-        trial.model_ = model
 
         return loss
 

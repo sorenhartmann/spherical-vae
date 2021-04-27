@@ -1,18 +1,36 @@
-from logging import log
 import os
+from datetime import datetime
 from pathlib import Path
-import torch
-from torch.distributions.kl import kl_divergence
-from torch.nn import Module, Linear, Sequential, Dropout
-from scipy.special import ive
 
-from torch.utils.data.dataset import random_split
+import optuna
+import torch
+from torch.nn import Dropout, Linear, Module, Sequential
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
 from tqdm import trange
-from datetime import datetime
-import optuna
 
+
+class BetaFunction:
+    def __init__(self, beta_0, n_epochs, start=0.25, end=0.75) -> None:
+
+        self.beta_0 = beta_0
+        self.n_epochs = n_epochs
+        self.start = start * n_epochs
+        self.end = end * n_epochs
+
+        self.a = 2 * (1 - beta_0) / self.n_epochs
+        self.b = beta_0 - self.a * self.n_epochs / 4
+
+        self.elbo_valid_after = self.end
+
+    def __call__(self, i):
+
+        if i < self.start:
+            return self.beta_0
+        elif i >= self.start and i < self.end:
+            return self.a * i + self.b
+        else:
+            return 1
 
 class ModelParameterError(Exception):
     pass

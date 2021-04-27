@@ -2,15 +2,13 @@
 # To add a new markdown cell, type '# %% [markdown]'
 # %%
 
+from typing import *
+
 import torch
 from src.models.common import Decoder, Encoder
-from typing import *
-from torch import nn, Tensor
-from torch.distributions import Distribution, Normal, Independent
+from torch import Tensor, nn
+from torch.distributions import Distribution, Independent, Normal
 from torch.distributions.kl import kl_divergence
-
-from torch.utils.data import random_split
-
 
 class VariationalAutoencoder(nn.Module):
     """A Variational Autoencoder with
@@ -86,8 +84,6 @@ class VariationalAutoencoder(nn.Module):
         output = self(batch)
         px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
         kl_term = kl_divergence(Independent(qz, 1), Independent(pz, 1))
-
-    
 
         loss = -px.log_prob(batch).sum(-1) + beta * kl_term
 
