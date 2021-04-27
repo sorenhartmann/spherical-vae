@@ -220,7 +220,7 @@ def _load_and_run(study_name, storage_name, objective, n_trials, seed):
 @click.option("--n-epochs", type=int, default=100, show_default=True)
 @click.option("--train-split", type=float, default=0.7, show_default=True)
 @click.option("--batch-size", type=int, default=16, show_default=True)
-@click.option("--latent_dim", type=int, default=3, show_default=True)
+@click.option("--latent-dim", type=int, default=3, show_default=True)
 @click.option("--seed", type=int, default=10)
 @click.option("--keep-best", type=int, default=10)
 @click.option("--name", type=str)
@@ -235,7 +235,7 @@ def main(
     latent_dim,
     seed,
     keep_best,
-    study_name,
+    name,
 ):
 
     torch.manual_seed(seed)
@@ -251,9 +251,11 @@ def main(
 
     run_dir = (Path(__file__).parents[1] / "runs").resolve()
 
-    if study_name is None:
+    if name is None:
         study_name = f"{data}-{model}"
-        
+    else:
+        study_name = name
+
     study_dir = run_dir / study_name
 
     if not study_dir.exists():
