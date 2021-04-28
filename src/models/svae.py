@@ -146,11 +146,11 @@ class CorrectedLoss:
             k_cpu = qz.k.cpu()
             m_cpu = qz.m.cpu()
             _im_2 = ive(m_cpu / 2, k_cpu)
-            _im_2_minus__1 = ive(m_cpu / 2 - 1, k_cpu)
-            _im_2.to(device)
-            _im_2_minus__1.to(device)
+            _im_2_minus_1 = ive(m_cpu / 2 - 1, k_cpu)
+            _im_2 = _im_2.to(device)
+            _im_2_minus_1 = _im_2_minus_1.to(device)
 
-            g_cor = log_px * (-_im_2 / _im_2_minus__1 + corr_term_d_k)
+            g_cor = log_px * (-_im_2 / _im_2_minus_1 + corr_term_d_k)
 
         log_px_d_k_adj = log_px_d_k + g_cor
         loss_d_k = (-log_px_d_k_adj + self.beta * kl_term_d_k) / len(qz.k)
