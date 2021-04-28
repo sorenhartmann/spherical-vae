@@ -7,6 +7,13 @@ from torch.distributions.kl import kl_divergence
 from torch.nn import Module
 from torch.tensor import Tensor
 
+cuda = torch.cuda.is_available()
+if cuda:
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
+
 class SphericalVAE(Module):
     def __init__(
         self, feature_dim, latent_dim, encoder_params=None, decoder_params=None
@@ -72,7 +79,7 @@ class SphericalVAE(Module):
 
         return {"px": px, "pz": pz, "qz": qz, "z": z}
 
-    def get_loss(self, batch, return_kl=False, beta=1.):
+    def get_loss(self, batch, return_kl=False, beta=1.0):
 
         loss = CorrectedLoss(self, batch, beta=beta)
 
@@ -81,10 +88,11 @@ class SphericalVAE(Module):
         else:
             return loss, loss.kl_term.mean()
 
+
 class CorrectedLoss:
     """ Corrects the gradient of the loss """
 
-    def __init__(self, model, batch, beta=1.):
+    def __init__(self, model, batch, beta=1.0):
 
         self.beta = beta
         self.model = model
@@ -92,7 +100,7 @@ class CorrectedLoss:
         self.px, self.pz, self.qz, self.z = [output[k] for k in ["px", "pz", "qz", "z"]]
         self.kl_term = kl_divergence(self.qz, self.pz)
         self.log_px = self.px.log_prob(batch)
-        loss = -self.log_px + beta*self.kl_term
+        loss = -self.log_px + beta * self.kl_term
         self.loss = loss.mean()
 
     def item(self):
@@ -101,7 +109,7 @@ class CorrectedLoss:
 
     def backward(self):
 
-        qz = self.qz 
+        qz = self.qz
 
         log_px = self.log_px
         kl_term = self.kl_term
@@ -132,16 +140,23 @@ class CorrectedLoss:
         (corr_term_d_k,) = torch.autograd.grad(
             corr_term, qz.k, grad_outputs=torch.ones_like(corr_term), retain_graph=True
         )
+
         with torch.no_grad():
-            g_cor = log_px * (
-                -ive(qz.m / 2, qz.k) / ive(qz.m / 2 - 1, qz.k) + corr_term_d_k
-            )
+
+            k_cpu = qz.k.cpu()
+            m_cpu = qz.m.cpu()
+            _im_2 = ive(m_cpu / 2, k_cpu)
+            _im_2_minus__1 = ive(m_cpu / 2 - 1, k_cpu)
+            _im_2.to(device)
+            _im_2_minus__1.to(device)
+
+            g_cor = log_px * (-_im_2 / _im_2_minus__1 + corr_term_d_k)
 
         log_px_d_k_adj = log_px_d_k + g_cor
         loss_d_k = (-log_px_d_k_adj + self.beta * kl_term_d_k) / len(qz.k)
 
         torch.autograd.backward(qz.k, grad_tensors=loss_d_k, retain_graph=True)
         torch.autograd.backward(qz.mu, grad_tensors=loss_d_mu, retain_graph=True)
-        torch.autograd.backward(self.model.decoder.parameters(), grad_tensors=loss_d_decoder)
-
-
+        torch.autograd.backward(
+            self.model.decoder.parameters(), grad_tensors=loss_d_decoder
+        )
