@@ -9,6 +9,14 @@ from torch.nn import (BatchNorm2d, Conv2d, ConvTranspose2d, Dropout, Dropout2d,
                       Linear, MaxPool2d, Module, Sequential)
 from torch.tensor import Tensor
 from torch.utils.data.dataset import random_split
+import time
+
+cuda = torch.cuda.is_available()
+if cuda:
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+
 
 
 def compute_conv_dim(dim_size, kernel_size, padding, stride):
@@ -284,6 +292,8 @@ class ConvSphericalVAE(SphericalVAE):
 if __name__ == "__main__":
 
     dataset = SkinCancerDataset(image_size=(225, 300))
+    dataset.to(device)
+
     image_size = dataset.X.shape[1:]
 
     train_split = 0.7
@@ -296,17 +306,33 @@ if __name__ == "__main__":
         generator=torch.Generator().manual_seed(42),
     )
 
+    cvae = ConvVariationalAutoencoder(
+        image_size=image_size, latent_dim=3
+    )
+    cvae.to(device)
+    mt_1 = ModelTrainer(
+        cvae,
+        n_epochs=50,
+        lr=0.0001,
+        tb_label="cnn-test",
+        beta_function=BetaFunction(1, 10)
+    )
     scvae = ConvSphericalVAE(
         image_size=image_size, latent_dim=3
     )
-    mt = ModelTrainer(
+    scvae.to(device)
+    mt_2 = ModelTrainer(
         scvae,
-        n_epochs=5,
+        n_epochs=50,
         lr=0.0001,
         tb_label="cnn-test-spherical",
         beta_function=BetaFunction(1, 10)
     )
-    mt.train(train_dataset, validation_dataset)
+    print(device)
+    t = time.time()
+    mt_1.train(train_dataset, validation_dataset)
+    mt_2.train(train_dataset, validation_dataset)
+    print(time.time()-t)
 
 
 

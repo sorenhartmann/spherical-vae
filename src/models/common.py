@@ -158,10 +158,10 @@ class ModelTrainer:
             torch.manual_seed(random_state)
 
         self.train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=self.batch_size
+            train_dataset, batch_size=self.batch_size,
         )
         self.validation_loader = torch.utils.data.DataLoader(
-            validation_dataset, batch_size=self.batch_size
+            validation_dataset, batch_size=self.batch_size,
         )
 
         self.train_loss = [None] * self.n_epochs
