@@ -13,7 +13,8 @@ if cuda:
 else:
     device = torch.device("cpu")
 
-run_dir = Path(__file__).parents[2] / "runs" / "run_walk"
+run_dir = Path(__file__).parents[2] / "runs" / "run-walk"
+run_dir.mkdir(exist_ok=True, parents=True)
 
 run_data = MotionCaptureDataset("09")
 walk_data = MotionCaptureDataset("08")
@@ -55,7 +56,7 @@ if __name__ == "__main__":
         generator=torch.Generator().manual_seed(42),
     )
 
-    n_models_to_train = 10
+    n_models_to_train = 5
     n_epochs = 1000
     batch_size = 16
     lr = 1e-4
@@ -75,34 +76,35 @@ if __name__ == "__main__":
         "progress_bar" : True,
     }
 
-    best_vae = {"state_dict": None, "loss": None}
+
+    best_svae_loss = None
+    best_vae_loss = None
+
     for i in range(n_models_to_train):
+
         ## Fit some models, choose best
         vae = VariationalAutoencoder(latent_dim=latent_dim, **model_args)
         vae.to(device)
         mt = ModelTrainer(vae, **trainer_args, tb_dir=run_dir / f"vae_{i}")
         mt.train(**train_args)
         loss = min(mt.validation_loss)
-        if best_vae["loss"] is None or loss < best_vae["loss"]:
-            best_vae["state_dict"] = vae.state_dict()
-            best_vae["loss"] = loss
-        print(loss, best_vae["loss"])
+        if best_vae_loss is None or loss < best_vae_loss:
+            best_vae_loss = loss
+            torch.save(vae.state_dict(), run_dir / "best_vae.pt")
 
-    best_svae = {"state_dict": None, "loss": None}
-    for i in range(n_models_to_train):
         ## Fit some models, choose best
         svae = SphericalVAE(latent_dim=latent_dim+1, **model_args)
         svae.to(device)
         mt = ModelTrainer(svae, **trainer_args, tb_dir=run_dir / f"svae_{i}")
         mt.train(**train_args)
         loss = min(mt.validation_loss)
-        if best_svae["loss"] is None or loss < best_svae["loss"]:
-            best_svae["state_dict"] = svae.state_dict()
-            best_svae["loss"] = loss
-        print(loss, best_svae["loss"])
+        if best_svae_loss is None or loss < best_svae_loss:
+            best_svae_loss = loss
+            torch.save(svae.state_dict(), run_dir / "best_svae.pt")
 
-    torch.save(vae.state_dict(), run_dir / "best_vae.pt")
-    torch.save(svae.state_dict(), run_dir / "best_svae.pt")
+
+   
+    
     
 
 
