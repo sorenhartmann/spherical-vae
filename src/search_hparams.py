@@ -165,9 +165,9 @@ class Objective:
 
         # ----- Suggest parameters -----
         ffnn_layers = trial.suggest_int("n_ffnn_layers", 1, 5)
-        lr = trial.suggest_loguniform("lr", 1e-4, 1e-2)
+        lr = trial.suggest_loguniform("lr", 1e-5, 1e-3)
         dropout = trial.suggest_float("dropout", 0.1, 0.5)
-        beta_0 = trial.suggest_loguniform("beta_0", 1e-3, 1)
+        beta_0 = trial.suggest_loguniform("beta_0", 1e-4, 0.5)
         ffnn_layers_size = []
         for i in range(ffnn_layers):
             ffnn_layers_size.append(
@@ -288,7 +288,7 @@ def _load_and_run(study_name, storage_name, objective, n_trials, seed):
     study.optimize(
         objective,
         n_trials=n_trials,
-        catch=(ModelParameterError,),
+        catch=(ModelParameterError, ZeroDivisionError, ValueError),
         callbacks=[objective.callback],
     )
 
