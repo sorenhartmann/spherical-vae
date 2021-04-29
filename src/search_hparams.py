@@ -21,15 +21,6 @@ if cuda:
 else:
     device = torch.device("cpu")
 
-hparam_search_space = {
-    "n_layers": (1, 5),
-    "layer_size": (100, 1000),
-    "lr": (1e-4, 1e-2),
-    "dropout": (0.1, 0.5),
-    "beta_0": (1e-3, 1),
-}
-
-
 def get_model_class(model_name, is_conv=False):
 
     if model_name == "vae" and not is_conv:
@@ -322,6 +313,8 @@ def main(
     torch.manual_seed(seed)
 
     dataset = get_dataset(dataset_name=data)
+    dataset.to(device)
+
     train_size = int(train_split * len(dataset))
     validation_size = len(dataset) - train_size
     train_dataset, validation_dataset = random_split(
@@ -376,7 +369,7 @@ def main(
     if n_trials == -1:
         n_trials = None
 
-    if n_processes == 1 or n_processes is None:
+    if n_processes == 1 or n_processes is None or device == torch.device("cuda"):
         _load_and_run(study_name, storage_name, objective, n_trials, seed)
     else:
         n_processes = os.cpu_count() if n_processes == -1 else n_processes
