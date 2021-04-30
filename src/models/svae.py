@@ -1,11 +1,13 @@
 import torch
 from scipy.special import ive
-from src.distributions import SphereUniform, VonMisesFisher
+from mpmath import mp
+from src.distributions import VonMisesFisher, SphereUniform
 from src.models.common import Decoder, Encoder, ModelParameterError
 from torch.distributions import Distribution, Independent, Normal
 from torch.distributions.kl import kl_divergence
 from torch.nn import Module
 from torch.tensor import Tensor
+from src.data.mocap import MotionCaptureDataset
 
 cuda = torch.cuda.is_available()
 if cuda:
@@ -89,6 +91,29 @@ class SphericalVAE(Module):
             return loss, loss.kl_term.mean()
 
 
+    def log_likelihood(self, x, S = 10):
+         # define the posterior q(z|x) / encode x into q(z|x)
+        qz = self.posterior(x)
+        # define the prior p(z)
+        pz = self.prior(batch_shape=x.shape[:-1])
+
+        # sample S samples from the posterior per data point x 
+        z = qz.rsample(sample_shape = torch.Size([S])) # [S, batchsize, latentdim]
+
+        # define the observation model p(x|z) = B(x | g(z))
+        px = self.observation_model(z)
+
+        with torch.no_grad():
+            # Calculating Monte Carlo Estimate of log likelihood 
+            sum_log_lik = px.log_prob(x) + pz.log_prob(z).sum(-1) - qz.log_prob(z)
+            log_lik = torch.zeros(x.shape[0])
+            for i in range(x.shape[0]):
+                tmp = mp.log(sum([mp.exp(t) for t in  sum_log_lik[:,i].detach().numpy()]) / S)
+                log_lik[i] = float(tmp) 
+
+        return {"log_like": log_lik}
+
+
 class CorrectedLoss:
     """ Corrects the gradient of the loss """
 
@@ -160,3 +185,23 @@ class CorrectedLoss:
         torch.autograd.backward(
             self.model.decoder.parameters(), grad_tensors=loss_d_decoder
         )
+
+if __name__ == "__main__":
+    dataset = MotionCaptureDataset("07", test=True)
+    n_features = dataset.n_features
+    X = dataset.X
+
+    svae = SphericalVAE(
+        feature_dim=n_features,
+        latent_dim=3,
+        encoder_params={
+            "activation_function" : "Tanh"
+        },
+        decoder_params={
+            "activation_function" : "Tanh"
+        },
+    )
+    output = svae(X)
+
+    print(svae.log_likelihood(x = X, S = 1000))
+    
