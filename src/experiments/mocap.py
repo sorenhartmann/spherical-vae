@@ -33,6 +33,7 @@ model_args = {
     },
 }
 
+
 def get_data(experiment_name, train_split):
 
     if experiment_name == "run-walk":
@@ -73,8 +74,9 @@ def get_data(experiment_name, train_split):
 @click.option("--n-epochs", type=int, default=1000)
 @click.option("--lr", type=float, default=1e-4)
 @click.option("--beta_0", type=float, default=0.2)
-def main(model_name, experiment_name, train_split, batch_size, n_models, n_epochs, lr, beta_0):
-
+def main(
+    model_name, experiment_name, train_split, batch_size, n_models, n_epochs, lr, beta_0
+):
 
     run_dir = Path(__file__).parents[2] / "runs" / f"{experiment_name}"
     run_dir.mkdir(exist_ok=True, parents=True)
@@ -93,17 +95,17 @@ def main(model_name, experiment_name, train_split, batch_size, n_models, n_epoch
     train_dataset, validation_dataset = get_data(experiment_name, train_split)
 
     trainer_args = {
-        "n_epochs" : n_epochs,
-        "batch_size" : batch_size,
-        "lr" : lr,
-        "beta_function" : BetaFunction(beta_0, n_epochs),
+        "n_epochs": n_epochs,
+        "batch_size": batch_size,
+        "lr": lr,
+        "beta_function": BetaFunction(beta_0, n_epochs),
     }
 
     train_args = {
-        "train_dataset" : train_dataset,
-        "validation_dataset" : validation_dataset,
-        "random_state" : None,
-        "progress_bar" : True,
+        "train_dataset": train_dataset,
+        "validation_dataset": validation_dataset,
+        "random_state": None,
+        "progress_bar": True,
     }
 
     best_loss = None
@@ -119,6 +121,7 @@ def main(model_name, experiment_name, train_split, batch_size, n_models, n_epoch
         if best_loss is None or loss < best_loss:
             best_loss = loss
             torch.save(model.state_dict(), run_dir / "best_vae.pt")
+
 
 if __name__ == "__main__":
     main()

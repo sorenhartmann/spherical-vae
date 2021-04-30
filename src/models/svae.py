@@ -152,10 +152,11 @@ class CorrectedLoss:
             loss, self.model.decoder.parameters(), retain_graph=True
         )
 
+
         eps = qz.saved_for_grad["eps"]
         w = qz.saved_for_grad["w"]
         b = qz.saved_for_grad["b"]
-
+        
         corr_term = (
             w * qz.k
             + 1 / 2 * (qz.m - 3) * torch.log(1 - w ** 2)
@@ -177,8 +178,8 @@ class CorrectedLoss:
 
             g_cor = log_px * (-_im_2 / _im_2_minus_1 + corr_term_d_k)
 
-        log_px_d_k_adj = log_px_d_k + g_cor
-        loss_d_k = (-log_px_d_k_adj + self.beta * kl_term_d_k) / len(qz.k)
+            log_px_d_k_adj = log_px_d_k + g_cor
+            loss_d_k = (-log_px_d_k_adj + self.beta * kl_term_d_k) / len(qz.k)
 
         torch.autograd.backward(qz.k, grad_tensors=loss_d_k, retain_graph=True)
         torch.autograd.backward(qz.mu, grad_tensors=loss_d_mu, retain_graph=True)
