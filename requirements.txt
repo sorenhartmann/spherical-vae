@@ -12,4 +12,5 @@ pygtrie
 tensorboard
 optuna
 click
+mpmath
 -e .

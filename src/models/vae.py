@@ -3,12 +3,19 @@
 # %%
 
 from typing import *
+from numpy.core.numeric import outer
 
 import torch
+from mpmath import mp
+from torch import tensor
 from src.models.common import Decoder, Encoder
 from torch import Tensor, nn
 from torch.distributions import Distribution, Independent, Normal
 from torch.distributions.kl import kl_divergence
+from src.data.mocap import MotionCaptureDataset
+
+
+import optuna
 
 class VariationalAutoencoder(nn.Module):
     """A Variational Autoencoder with
@@ -91,3 +98,46 @@ class VariationalAutoencoder(nn.Module):
             return loss.mean()
         else:
             return loss.mean(), kl_term.mean()
+
+    def log_likelihood(self, x, S = 10):
+         # define the posterior q(z|x) / encode x into q(z|x)
+        qz = self.posterior(x)
+        # define the prior p(z)
+        pz = self.prior(batch_size=x.size(0))
+
+        # sample S samples from the posterior per data point x 
+        z = qz.rsample([S]) # [S, batchsize, latentdim]
+
+        # define the observation model p(x|z) = B(x | g(z))
+        px = self.observation_model(z)
+
+        # Calculating Monte Carlo Estimate of log likelihood 
+        sum_log_lik = px.log_prob(x).sum(-1) + pz.log_prob(z).sum(-1) - qz.log_prob(z).sum(-1)
+        log_lik = torch.zeros(x.shape[0])
+        for i in range(x.shape[0]):
+            tmp = mp.log(sum([mp.exp(t) for t in  sum_log_lik[:,i].detach().numpy()]) / S)
+            log_lik[i] = float(tmp) 
+
+        return {"log_like": log_lik}
+
+if __name__ == "__main__":
+    dataset = MotionCaptureDataset("07", test=True)
+    n_features = dataset.n_features
+    X = dataset.X
+
+    vae = VariationalAutoencoder(
+    feature_dim=n_features,
+    latent_dim=3,
+    encoder_params={
+        "activation_function" : "Tanh"
+    },
+    decoder_params={
+        "activation_function" : "Tanh"
+    },
+)
+    output = vae(X)
+    #print(vae.get_loss(batch = X[0:5,:]))
+
+    print(vae.log_likelihood(x = X, S = 1000))
+    
+
