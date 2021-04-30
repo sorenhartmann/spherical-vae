@@ -15,4 +15,4 @@ module load cuda/8.0
 module load cudnn/v7.0-prod-cuda8
 module load ffmpeg/4.2.2
 
-python3 src/experiments/mocap.py run-walk vae
+python3 src/experiments/mocap.py vae run-walk
