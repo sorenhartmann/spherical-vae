@@ -42,6 +42,12 @@ def get_data(experiment_name, train_split):
         run_data.to(device)
         walk_data.to(device)
         dataset = ConcatDataset([run_data, walk_data])
+    elif experiment_name == "walk-walk":
+        walk_1_data = MotionCaptureDataset("07")
+        walk_2_data = MotionCaptureDataset("08")
+        walk_1_data.to(device)
+        walk_2_data.to(device)
+        dataset = ConcatDataset([walk_1_data, walk_2_data])
     elif experiment_name == "dancing":
         salsa_data = MotionCaptureDataset("60")
         indian_data = MotionCaptureDataset("94")
