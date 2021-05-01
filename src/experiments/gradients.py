@@ -66,7 +66,7 @@ def main(
     if run_name is None:
         run_name = "gradients"
 
-    run_dir = Path(__file__).parents[2] / "runs" / "gradients"
+    run_dir = Path(__file__).parents[2] / "runs" /  run_name
 
     dataset = MotionCaptureDataset("07")
     train_size = int(train_split * len(dataset))
