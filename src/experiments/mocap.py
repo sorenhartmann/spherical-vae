@@ -120,7 +120,7 @@ def main(
         loss = min(mt.validation_loss)
         if best_loss is None or loss < best_loss:
             best_loss = loss
-            torch.save(model.state_dict(), run_dir / "best_vae.pt")
+            torch.save(model.state_dict(), run_dir / "best_{model_name}.pt")
 
 
 if __name__ == "__main__":

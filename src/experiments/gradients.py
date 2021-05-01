@@ -69,6 +69,7 @@ def main(
     run_dir = Path(__file__).parents[2] / "runs" / "gradients"
 
     dataset = MotionCaptureDataset("07")
+    dataset.to(device)
     train_size = int(train_split * len(dataset))
     validation_size = len(dataset) - train_size
     train_dataset, validation_dataset = random_split(
