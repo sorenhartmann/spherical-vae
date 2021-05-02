@@ -86,7 +86,7 @@ def main(
 
     run_dir = Path(__file__).parents[2] / "runs" / f"{experiment_name}"
     run_dir.mkdir(exist_ok=True, parents=True)
-    if (run_dir / "best_{model_name}.pt").exists():
+    if (run_dir / f"best_{model_name}.pt").exists():
         raise FileExistsError
 
     torch.manual_seed(123)
@@ -126,7 +126,7 @@ def main(
         loss = min(mt.validation_loss)
         if best_loss is None or loss < best_loss:
             best_loss = loss
-            torch.save(model.state_dict(), run_dir / "best_{model_name}.pt")
+            torch.save(model.state_dict(), run_dir / f"best_{model_name}.pt")
 
 
 if __name__ == "__main__":
