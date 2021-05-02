@@ -11,4 +11,4 @@
  #BSUB -e logs/%J.err
  
 module load python3/3.7.7
-python3 src/search_hparams.py --n-processes=16 --n-epochs=1000 --n-trials=100 svae mocap-07
+python3 src/search_hparams.py --n-processes=16 --n-epochs=1000 --n-trials=100 --keep-best=3 svae mocap-07

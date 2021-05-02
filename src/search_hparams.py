@@ -10,7 +10,8 @@ from src.models.svae import SphericalVAE
 from src.models.convolutional import ConvVariationalAutoencoder, ConvSphericalVAE
 import time
 import click
-from src.data import SyntheticS2, MotionCaptureDataset
+from src.data.synthetic import SyntheticS2
+from src.data.mocap import MotionCaptureDataset, split_time_series
 import optuna
 import torch
 from multiprocessing import Pool
@@ -260,7 +261,11 @@ class Objective:
 
         try:
             for checkpoint in Path(self.checkpoint_dir).iterdir():
-                if int(checkpoint.stem) not in trials_to_keep:
+                if "_best" in checkpoint.stem:
+                    number = int(checkpoint.stem.split("_")[0])
+                else:
+                    number = int(checkpoint.stem)
+                if number not in trials_to_keep:
                     checkpoint.unlink()
         except FileNotFoundError:
             pass
@@ -315,13 +320,16 @@ def main(
     dataset = get_dataset(dataset_name=data)
     dataset.to(device)
 
-    train_size = int(train_split * len(dataset))
-    validation_size = len(dataset) - train_size
-    train_dataset, validation_dataset = random_split(
-        dataset,
-        [train_size, validation_size],
-        generator=torch.Generator().manual_seed(42),
-    )
+    if "mocap" in data:
+        train_dataset, validation_dataset = split_time_series(dataset, train_split)
+    else:
+        train_size = int(train_split * len(dataset))
+        validation_size = len(dataset) - train_size
+        train_dataset, validation_dataset = random_split(
+            dataset,
+            [train_size, validation_size],
+            generator=torch.Generator().manual_seed(42),
+        )
 
     run_dir = (Path(__file__).parents[1] / "runs").resolve()
 
