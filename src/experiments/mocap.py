@@ -1,7 +1,5 @@
-from datetime import datetime
 from pathlib import Path
-from torch.utils.data import random_split
-from src.data.mocap import MotionCaptureDataset
+from src.data.mocap import MotionCaptureDataset, split_time_series
 from src.models.svae import SphericalVAE
 from src.models.vae import VariationalAutoencoder
 from src.models.common import ModelTrainer, BetaFunction
@@ -33,42 +31,51 @@ model_args = {
     },
 }
 
-
 def get_data(experiment_name, train_split):
 
     if experiment_name == "run-walk":
-        run_data = MotionCaptureDataset("09")
-        walk_data = MotionCaptureDataset("08")
-        run_data.to(device)
-        walk_data.to(device)
-        dataset = ConcatDataset([run_data, walk_data])
+        
+        datasets = [
+            MotionCaptureDataset("09"),
+            MotionCaptureDataset("08"),
+        ]
+
     elif experiment_name == "walk-walk":
-        walk_1_data = MotionCaptureDataset("07")
-        walk_2_data = MotionCaptureDataset("08")
-        walk_1_data.to(device)
-        walk_2_data.to(device)
-        dataset = ConcatDataset([walk_1_data, walk_2_data])
+
+        datasets = [
+            MotionCaptureDataset("07"),
+            MotionCaptureDataset("08"),
+        ]
+
     elif experiment_name == "dancing":
-        salsa_data = MotionCaptureDataset("60")
-        indian_data = MotionCaptureDataset("94")
-        salsa_data.to(device)
-        indian_data.to(device)
-        dataset = ConcatDataset([salsa_data, indian_data])
+
+        datasets = [
+            MotionCaptureDataset("60"),
+            MotionCaptureDataset("94"),
+        ]
+
     elif experiment_name == "swimming":
-        dataset = MotionCaptureDataset("126")
-        dataset.to(device)
+        
+        datasets = [
+            MotionCaptureDataset("126")
+        ]
+
     else:
         raise ValueError
 
-    train_size = int(train_split * len(dataset))
-    validation_size = len(dataset) - train_size
-    train_dataset, validation_dataset = random_split(
-        dataset,
-        [train_size, validation_size],
-        generator=torch.Generator().manual_seed(42),
-    )
+    train_datasets = []
+    validation_datasets = []
 
-    return train_dataset, validation_dataset
+    for dataset in datasets:
+        dataset.to(device)
+        train_dataset, validation_dataset = split_time_series(dataset, train_split)
+        train_datasets.append(train_dataset)
+        validation_datasets.append(validation_dataset)
+
+    train_dataset_concat = ConcatDataset(train_datasets)
+    validation_dataset_concat = ConcatDataset(validation_datasets)
+
+    return train_dataset_concat, validation_dataset_concat
 
 
 @click.command()
