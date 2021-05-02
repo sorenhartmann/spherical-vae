@@ -3,7 +3,7 @@
  #BSUB -gpu "num=1:mode=exclusive_process"
  #BSUB -J swimming-vae
  #BSUB -n 1
- #BSUB -W 24:00
+ #BSUB -W 10:00
  #BSUB -B
  #BSUB -N
  #BSUB -R "rusage[mem=8GB]"
