@@ -61,8 +61,8 @@ def get_test_data(experiment_name):
         return swim_data.X, classes, swim_data.labels
 
     elif experiment_name == "walk-walk":
-        walk_1_data = MotionCaptureDataset("07")
-        walk_2_data = MotionCaptureDataset("08")
+        walk_1_data = MotionCaptureDataset("07", test=True)
+        walk_2_data = MotionCaptureDataset("08", test=True)
         X = torch.cat([walk_1_data.X, walk_2_data.X])
         classes = ["Walk 1"] * len(walk_1_data) + ["Walk 2"] * len(walk_2_data)
 
@@ -93,8 +93,6 @@ if __name__ == "__main__":
     experiments = ["run-walk", "swimming", "dancing", "walk-walk"]
 
     for experiment in experiments:
-
-        plot_data = pd.DataFrame(columns=["x", "y", "Label", "Model"])
 
         X_, classes_, obs_labels_ = get_test_data(experiment)
         sorted_obs_labels = pd.Series(obs_labels_).str.split(":", expand=True).astype({0:str, 1:int}).sort_values([0, 1])
