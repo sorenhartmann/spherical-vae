@@ -83,12 +83,16 @@ class SphericalVAE(Module):
 
     def get_loss(self, batch, return_kl=False, beta=1.0):
 
-        loss = CorrectedLoss(self, batch, beta=beta)
+        output = self(batch)
+        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        kl_term = kl_divergence(qz, pz)
+
+        loss = -px.log_prob(batch) + beta * kl_term
 
         if not return_kl:
-            return loss
+            return loss.mean()
         else:
-            return loss, loss.kl_term.mean()
+            return loss.mean(), kl_term.mean()
 
 
     def log_likelihood(self, x, S = 10):
@@ -113,6 +117,17 @@ class SphericalVAE(Module):
 
         return {"log_like": log_lik}
 
+class SphericalVAEWithCorrection(SphericalVAE):
+
+    def get_loss(self, batch, return_kl=False, beta=1.0):
+
+        loss = CorrectedLoss(self, batch, beta=beta)
+
+        if not return_kl:
+            return loss
+        else:
+            return loss, loss.kl_term.mean()
+            
 
 class CorrectedLoss:
     """ Corrects the gradient of the loss """
@@ -152,8 +167,9 @@ class CorrectedLoss:
             loss, self.model.decoder.parameters(), retain_graph=True
         )
 
-
         eps = qz.saved_for_grad["eps"]
+        # b = (-2 * qz.k + torch.sqrt(4 * qz.k ** 2 + (qz.m - 1) ** 2)) / (qz.m - 1)
+        # w = (1 - (1 + b) * eps) / (1 - (1 - b) * eps)
         w = qz.saved_for_grad["w"]
         b = qz.saved_for_grad["b"]
         

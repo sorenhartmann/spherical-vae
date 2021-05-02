@@ -121,8 +121,6 @@ if __name__ == "__main__":
             sns.scatterplot(x=x, y=y, hue=classes, marker=".", edgecolor="none")
             plt.axis("equal")
 
-            trials_to_plot
-
             plt.figure()
             sns.lineplot(x=x, y=y, hue=classes, sort=False, units=trial_ids, estimator=None)
             plt.axis("equal")

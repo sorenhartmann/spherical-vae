@@ -1,6 +1,8 @@
 import io
 import urllib.request
 import torch
+from torch.utils import data
+from torch.utils.data.dataset import Subset
 import torchvision
 import random
 import matplotlib.pyplot as plt
@@ -16,6 +18,7 @@ root_dir = Path(__file__).parents[2]
 raw_dir = root_dir / "data" / "raw"
 preprocessed_dir = root_dir / "data" / "preprocessed"
 
+
 def _hook(t):
     last_b = [0]
 
@@ -26,6 +29,7 @@ def _hook(t):
         last_b[0] = b
 
     return update_to
+
 
 class MotionCaptureDataset(torch.utils.data.Dataset):
 
@@ -44,7 +48,7 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         sub_path = Path("subjects") / self.subject
 
         self.raw_file = raw_dir / Path(self.raw_url).name
-        self.preproccesed_dir = preprocessed_dir / "mocap" /  sub_path
+        self.preproccesed_dir = preprocessed_dir / "mocap" / sub_path
 
         file_name = "test.pt" if test else "train.pt"
         try:
@@ -77,31 +81,33 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
         subject_dir = f"all_asfamc/subjects/{self.subject}"
         trial_data = {}
 
+        train_data = {"X": [], "labels": []}
+        test_data = {"X": [], "labels": []}
+
         for file_name, buffer in zipped_data.iter_files(subject_dir, ext=".amc"):
+
             data = process_amc(buffer)
-            trial_name = file_name[len(subject_dir)+1:-4]
+            trial_name = file_name[len(subject_dir) + 1 : -4]
             trial_data[trial_name] = data
 
-        labels = [
-            f"{trial_name}:{i+1}"
-            for trial_name, data in trial_data.items()
-            for i in range(len(data))
-        ]
+            X = torch.tensor(data.values)
+            labels = [f"{trial_name}:{i+1}" for i in range(len(X))]
+            n_train = int(self.train_perc * len(X))
 
-        X = torch.cat([torch.tensor(data.values) for data in trial_data.values()])
+            train_data["X"].append(X[:n_train, :])
+            test_data["X"].append(X[n_train:, :])
 
-        X_train, X_test, labels_train, labels_test = train_test_split(
-            X, labels, random_state=123, train_size=self.train_perc
-        )
+            train_data["labels"].append(labels[:n_train])
+            test_data["labels"].append(labels[n_train:])
 
         train = {
-            "X": X_train,
-            "labels": labels_train,
+            "X": torch.cat(train_data["X"]),
+            "labels": sum(train_data["labels"], []),
         }
 
         test = {
-            "X": X_test,
-            "labels": labels_test,
+            "X": torch.cat(test_data["X"]),
+            "labels": sum(test_data["labels"], []),
         }
 
         if not self.preproccesed_dir.exists():
@@ -119,8 +125,9 @@ class MotionCaptureDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         return self.X[index, :]
 
+
 def process_amc(file_contents: io.BytesIO):
-    
+
     for initial_line in file_contents:
         initial_line = initial_line.strip()
         if initial_line.strip().isnumeric():
@@ -131,9 +138,9 @@ def process_amc(file_contents: io.BytesIO):
 
     # Read first observation
     observation = []
-    for line in file_contents: 
+    for line in file_contents:
         if not line.strip().isnumeric():
-            name, *values = line.split(' ')
+            name, *values = line.split(" ")
             observation.extend(float(x) for x in values)
             field_names.extend(f"{name}:{i}" for i in range(len(values)))
         else:
@@ -141,10 +148,10 @@ def process_amc(file_contents: io.BytesIO):
             observation = []
             break
 
-    # Read remaining lines 
-    for line in file_contents: 
+    # Read remaining lines
+    for line in file_contents:
         if not line.strip().isnumeric():
-            name, *values = line.split(' ')
+            name, *values = line.split(" ")
             observation.extend(float(x) for x in values)
         else:
             observations.append(observation)
@@ -154,5 +161,27 @@ def process_amc(file_contents: io.BytesIO):
     if len(observation) > 0:
         observations.append(observation)
 
-    data = pd.DataFrame.from_records(observations, columns=field_names,)
+    data = pd.DataFrame.from_records(
+        observations,
+        columns=field_names,
+    )
     return data
+
+
+def split_time_series(dataset, split_perc=0.7):
+
+    observations = (
+        pd.Series(dataset.labels)
+        .str.split(":", expand=True)
+        .astype({0: str, 1: int})
+        .rename(columns={0: "trial_id", 1: "time_step"})
+    )
+    counts = observations.groupby("trial_id").count()
+    with_total = pd.merge(observations, counts, how="inner", on="trial_id", suffixes=["", "_total"])
+
+    is_first = with_total["time_step"] < with_total["time_step_total"] * split_perc
+
+    idx_first = observations.index[is_first].values
+    idx_last = observations.index[~is_first].values
+
+    return Subset(dataset, idx_first), Subset(dataset, idx_last)
