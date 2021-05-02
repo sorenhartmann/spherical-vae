@@ -246,6 +246,7 @@ class ModelTrainer:
             self.trial.report(self.validation_loss[epoch], epoch)
             if self.trial.should_prune():
                 raise optuna.TrialPruned()
+                
 
     def after_training(self):
 
@@ -260,6 +261,9 @@ class ModelTrainer:
         if self.checkpoint_path is not None:
             Path(self.checkpoint_path).parent.mkdir(exist_ok=True, parents=True)
             torch.save(self.model.state_dict(), self.checkpoint_path)
+
+            best_model_path = self.checkpoint_path.with_name(f"{self.checkpoint_path.stem}_best.pt")
+            torch.save(self.best_params, best_model_path)
 
 
 def get_hparams(model):

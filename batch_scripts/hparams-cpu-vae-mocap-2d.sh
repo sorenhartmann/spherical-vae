@@ -11,4 +11,4 @@
  #BSUB -e logs/%J.err
  
 module load python3/3.7.7
-python3 src/search_hparams.py --n-processes=16 --n-epochs=1000 --n-trials=100 --latent-dim=2 --name=mocap-07-vae-2d vae mocap-07
+python3 src/search_hparams.py --n-processes=16 --n-epochs=1000 --n-trials=100 --latent-dim=2 --keep-best=3 --name=mocap-07-vae-2d vae mocap-07
