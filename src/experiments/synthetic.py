@@ -9,13 +9,7 @@ from torch.distributions.kl import kl_divergence
 
 from src.data.synthetic import SyntheticS2
 
-cuda = torch.cuda.is_available()
-if cuda:
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
-
-layer_sizes = [150]
+layer_sizes = [100, 100]
 latent_dim = 3
 n_features = 62
 
@@ -37,8 +31,7 @@ model_args = {
 @click.command()
 @click.option("--train-split", type=float, default=0.7, show_default=True)
 @click.option("--batch-size", type=int, default=16, show_default=True)
-@click.option("--n-models", type=int, default=5)
-@click.option("--n-epochs", type=int, default=1000)
+@click.option("--n-epochs", type=int, default=200)
 @click.option("--lr", type=float, default=5e-4)
 @click.option("--beta_0", type=float, default= 1.)
 @click.option("--run-name", type=str)
@@ -49,13 +42,19 @@ def main(
     torch.manual_seed(123)
 
     if run_name is None:
-        run_name = "gradients"
+        run_name = "synthetic"
 
     run_dir = Path(__file__).parents[2] / "runs" /  run_name
 
-    dataset = MotionCaptureDataset("07")
+    dataset = SyntheticS2()
     dataset.to(device)
-    train_dataset, validation_dataset = split_time_series(dataset, 0.7)
+
+    validation_size = len(dataset) - train_size
+    train_dataset, validation_dataset = random_split(
+        dataset,
+        [train_size, validation_size],
+        generator=torch.Generator().manual_seed(42),
+    )
 
     trainer_args = {
         "n_epochs": n_epochs,
@@ -70,9 +69,6 @@ def main(
         "random_state": None,
         "progress_bar": True,
     }
-    
-
-    for i in range(n_models):
 
         svae_w_corr = SphericalVAEWithCorrection(**model_args)
         svae_w_corr.to(device)

@@ -215,6 +215,7 @@ class CorrectedLoss:
         )
 
 if __name__ == "__main__":
+    
     dataset = MotionCaptureDataset("07", test=True)
     n_features = dataset.n_features
     X = dataset.X
