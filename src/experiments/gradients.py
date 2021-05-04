@@ -2,12 +2,8 @@ from pathlib import Path
 from src.models.common import BetaFunction, ModelTrainer
 import click
 import torch
-from torch.utils.data.dataset import random_split
 from src.models.svae import SphericalVAE, SphericalVAEWithCorrection
-from src.data.mocap import MotionCaptureDataset
-from torch.distributions.kl import kl_divergence
-
-from src.data.synthetic import SyntheticS2
+from src.data.mocap import MotionCaptureDataset, split_time_series
 
 cuda = torch.cuda.is_available()
 if cuda:
