@@ -6,7 +6,7 @@ from src.visualizations.mocap import get_experiment_data
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import cross_val_score
-from torch.utils.data import ConcatDataset
+from torch.utils.data import ConcatDataset, DataLoader
 from src.utils import plot_3d
 from pathlib import Path
 import optuna
@@ -19,6 +19,9 @@ run_dir = Path(__file__).parents[2] / "runs"
 if __name__ == "__main__":
 
     experiments = ["run-walk", "swimming", "dancing", "walk-walk"]
+
+    columns = pd.MultiIndex.from_tuples([['KNN', 'VAE'], ['KNN', 'S-VAE'], ['LL', 'VAE'], ['LL', 'S-VAE'], ['ELBO', 'VAE'], ['ELBO', 'S-VAE']], names=["Estimate", "Model"])
+    results = pd.DataFrame(columns = columns, index = experiments)
 
     for experiment in experiments:
 
@@ -53,9 +56,12 @@ if __name__ == "__main__":
             Z_test = vae(X_test)["z"].detach().numpy()
             knn_vae = KNeighborsClassifier(n_neighbors=3)
             knn_vae.fit(Z_train, classes_train)
-            knn_vae.score(Z_test, classes_test)
+            results.loc[experiment, ('KNN', 'VAE')] = knn_vae.score(Z_test, classes_test)
 
-            print(f"VAE for {experiment}: {knn_vae.score(Z_test, classes_test)}")
+            results.loc[experiment, ('ELBO', 'VAE')] = -vae.get_loss(X_test).detach().numpy()
+            results.loc[experiment, ('LL', 'VAE')] = vae.log_likelihood(X_test)['average_log_like'].detach().numpy()
+
+            #print(f"VAE for {experiment}: knn score: {score}, elbo: {elbo}, log likelihood: {log_like}")
 
         state_dict_path = run_dir / experiment / "best_svae.pt"
         
@@ -69,9 +75,17 @@ if __name__ == "__main__":
             Z_train = svae(X_train)["z"].detach().numpy()
             Z_test = svae(X_test)["z"].detach().numpy()
             knn_svae = KNeighborsClassifier(n_neighbors=3)
-            knn_vae.fit(Z_train, classes_train)
-            knn_vae.score(Z_test, classes_test)
+            knn_svae.fit(Z_train, classes_train)
+            results.loc[experiment, ('KNN', 'S-VAE')] = knn_svae.score(Z_test, classes_test)
 
-            print(f"S-VAE for {experiment}: {knn_vae.score(Z_test, classes_test)}")
+            results.loc[experiment, ('ELBO', 'S-VAE')] = -svae.get_loss(X_test).detach().numpy()
+            results.loc[experiment, ('LL', 'S-VAE')] = svae.log_likelihood(X_test)['average_log_like'].detach().numpy()
 
 
+            #print(f"SVAE for {experiment}: knn score: {score}, elbo: {elbo}, log likelihood: {log_like}")
+        
+
+    results.to_latex()
+
+    
+    
