@@ -3,7 +3,7 @@ from src.models.common import BetaFunction, ModelTrainer
 import click
 import torch
 from torch.utils.data.dataset import random_split
-from src.models.svae import SphericalVAE
+from src.models.svae import SphericalVAE, SphericalVAEWithCorrection
 from src.data.mocap import MotionCaptureDataset
 from torch.distributions.kl import kl_divergence
 
@@ -14,21 +14,6 @@ if cuda:
     device = torch.device("cuda")
 else:
     device = torch.device("cpu")
-
-class SphericalVAEWithoutCorrection(SphericalVAE):
-    def get_loss(self, batch, return_kl=False, beta=1.0):
-
-        output = self(batch)
-        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
-        kl_term = kl_divergence(qz, pz)
-
-        loss = -px.log_prob(batch) + beta * kl_term
-
-        if not return_kl:
-            return loss.mean()
-        else:
-            return loss.mean(), kl_term.mean()
-
 
 layer_sizes = [150]
 latent_dim = 3
@@ -93,22 +78,20 @@ def main(
     }
     
 
-
     for i in range(n_models):
 
-        svae = SphericalVAE(**model_args)
-        svae.to(device)
+        svae_w_corr = SphericalVAEWithCorrection(**model_args)
+        svae_w_corr.to(device)
 
-        mt = ModelTrainer(svae, **trainer_args, tb_dir=run_dir / f"w_corr_{i}")
+        mt = ModelTrainer(svae_w_corr, **trainer_args, tb_dir=run_dir / f"w_corr_{i}")
         mt.train(**train_args)
 
 
-        svae_wo_corr = SphericalVAEWithoutCorrection(**model_args)
+        svae_wo_corr = SphericalVAE(**model_args)
         svae_wo_corr.to(device)
         
         mt = ModelTrainer(svae_wo_corr, **trainer_args, tb_dir=run_dir / f"wo_corr_{i}")
         mt.train(**train_args)
-        
 
 
 if __name__ == "__main__":
