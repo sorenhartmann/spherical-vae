@@ -13,7 +13,7 @@ if cuda:
 else:
     device = torch.device("cpu")
 
-layer_sizes = [700, 750, 700]
+layer_sizes = [150]
 latent_dim = 2
 n_features = 62
 
@@ -133,7 +133,8 @@ def main(
         loss = min(mt.validation_loss)
         if best_loss is None or loss < best_loss:
             best_loss = loss
-            torch.save(model.state_dict(), run_dir / f"best_{model_name}.pt")
+            torch.save(model.state_dict(), run_dir / f"final_{model_name}.pt")
+            torch.save(model.best_params, run_dir / f"best_{model_name}.pt")
 
 
 if __name__ == "__main__":
