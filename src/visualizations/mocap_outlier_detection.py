@@ -1,20 +1,19 @@
-import torch
+from math import floor, log
 from pathlib import Path
-from src.data.mocap import MotionCaptureDataset
-from src.experiments.mocap import model_args
-from src.visualizations.mocap import get_test_data
-import seaborn as sns
-from src.models.vae import VariationalAutoencoder
-from src.models.svae import SphericalVAE
+
 import matplotlib.pyplot as plt
 import numpy as np
-from math import floor, log
+import pandas as pd
+import seaborn as sns
+import torch
 from sklearn.metrics import roc_auc_score
+from src.data.mocap import MotionCaptureDataset
+from src.experiments.mocap import model_args
+from src.models.svae import SphericalVAE
+from src.models.vae import VariationalAutoencoder
+from src.visualizations.common import get_test_data
 
-def spherical_coordiate(x, y, z):
-    lambda_ = np.arccos(z) * 2 
-    phi = np.arctan2(y, x) 
-    return lambda_, phi
+overleaf_dir = Path(__file__).resolve().parents[2] / "overleaf" / "figures"
 
 def in_dist_samples(experiment_name, n_samples= 100, seed = 40521):
     torch.manual_seed(seed)
@@ -58,7 +57,6 @@ def get_log_like_and_ELBO(experiment_name, n_samples_in_dist = 100, n_samples_ou
 
     run_dir = Path(__file__).parents[2] / "runs" / experiment_name
 
-    print(run_dir)
 
     vae = VariationalAutoencoder(latent_dim=2, **model_args)
     vae_state_dict = torch.load(
@@ -96,6 +94,7 @@ def get_log_like_and_ELBO(experiment_name, n_samples_in_dist = 100, n_samples_ou
     return log_lik_ELBO_dict
 
 def get_roc_auc_score(log_lik_ELBO_dict, experiment_name):
+    
     log_lik_vae_in_dist = log_lik_ELBO_dict["log_lik_vae_in_dist"]
     log_lik_svae_in_dist = log_lik_ELBO_dict["log_lik_svae_in_dist"]
     ELBO_vae_in_dist = log_lik_ELBO_dict["ELBO_vae_in_dist"]
@@ -136,33 +135,71 @@ def get_roc_auc_score(log_lik_ELBO_dict, experiment_name):
     
 if __name__ == "__main__":
 
-    log_lik_ELBO_swimming = get_log_like_and_ELBO("swimming", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    log_lik_ELBO_swimming = get_log_like_and_ELBO("swimming", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_swimming = get_roc_auc_score(log_lik_ELBO_swimming, "swimming")
 
-    log_lik_ELBO_walk_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    log_lik_ELBO_walk_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_walk_walk = get_roc_auc_score(log_lik_ELBO_walk_walk, "walk-walk")
-    
-    log_lik_ELBO_run_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+        
+    log_lik_ELBO_run_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_run_walk = get_roc_auc_score(log_lik_ELBO_run_walk, "run-walk")
 
-    log_lik_ELBO_dancing = get_log_like_and_ELBO("dancing", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    log_lik_ELBO_dancing = get_log_like_and_ELBO("dancing", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_dancing = get_roc_auc_score(log_lik_ELBO_dancing, "dancing")
 
-    colors = ["firebrick", "steelblue"]
-    alphas = [1, 0.4]
+    df = pd.DataFrame(columns = ["LL", "Model", "Data", "Experiment"])
+    results = [
+        ("Swimming", log_lik_ELBO_swimming),
+        ("Walking", log_lik_ELBO_walk_walk),
+        ("Run/walk", log_lik_ELBO_run_walk),
+        ("Dancing", log_lik_ELBO_dancing),
+    ]
+    min_log_lik = -1200
+    for experiment, result in results:
+        for tag, (model, data) in [
+            ("log_lik_vae_in_dist", ("VAE", "In dist.")),
+            ("log_lik_vae_out_of_dist", ("VAE", "Out of dist.")),
+            ("log_lik_svae_in_dist", ("SVAE", "In dist.") ),
+            ("log_lik_svae_out_of_dist", ("SVAE", "Out of dist.") ),
+        ]:
+            df = df.append(pd.DataFrame({
+                "LL" : result[tag],
+                "Model" : model,
+                "Data" : data,
+                "Experiment" : experiment,
+            }))
 
-    fig, ax = plt.subplots()
-    for k, log_lik in enumerate([log_lik_ELBO_dancing["log_lik_vae_out_of_dist"], log_lik_ELBO_dancing["log_lik_vae_in_dist"]]):
-        sns.histplot(log_lik, 
-                     ax = ax,
-                     color=colors[k], 
-                     stat = "count", 
-                     alpha = alphas[k])
 
-    #fig2, ax2 = plt.subplots(figsize = (15,10))
-    #for k, log_lik in enumerate([log_lik_svae_out_of_dist, log_lik_svae_in_dist]):
-    #            sns.histplot(log_lik, 
-    #                 ax = ax2,
-    #                 color=colors[k], 
-    #                 stat = "count",
-    #                 alpha = alphas[k])
+    df.reset_index(inplace=True, drop=True)
+
+    min_log_lik = -1200
+    sns.set_theme("notebook", "whitegrid")
+    fig = sns.displot(
+        data=df[df["LL"] > min_log_lik],
+        x="LL",
+        col="Model",
+        hue="Data",
+        row="Experiment",
+        kind="hist",
+        bins=40,
+        common_bins=True,
+        aspect=1.3
+    )
+    if overleaf_dir.exists():
+        fig.savefig(overleaf_dir / "outlier_all.pdf")
+
+
+    fig = sns.displot(
+        data=df[(df["LL"] > min_log_lik) & (df["Experiment"] == "Swimming")],
+        x="LL",
+        col="Model",
+        hue="Data",
+        kind="hist",
+        bins=40,
+        common_bins=True,
+        aspect=1
+    )
+
+    if overleaf_dir.exists():
+        fig.savefig(overleaf_dir / "outlier_swimming.pdf")
+
