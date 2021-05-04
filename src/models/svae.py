@@ -94,6 +94,14 @@ class SphericalVAE(Module):
         else:
             return loss.mean(), kl_term.mean()
 
+    def get_ELBO_per_obs(self, batch, beta=1.0):
+        output = self(batch)
+        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        kl_term = kl_divergence(qz, pz)
+
+        loss = -px.log_prob(batch) + beta * kl_term
+
+        return loss
 
     def log_likelihood(self, x, S = 10):
          # define the posterior q(z|x) / encode x into q(z|x)
@@ -114,8 +122,11 @@ class SphericalVAE(Module):
             for i in range(x.shape[0]):
                 tmp = mp.log(sum([mp.exp(t) for t in  sum_log_lik[:,i].detach().numpy()]) / S)
                 log_lik[i] = float(tmp) 
+        
+        ave_log_lik = log_lik.mean()
+        n_in_ave = x.shape[0]
 
-        return {"log_like": log_lik}
+        return {"log_like": log_lik, "average_log_like": ave_log_lik, "n": n_in_ave}
 
 class SphericalVAEWithCorrection(SphericalVAE):
 
