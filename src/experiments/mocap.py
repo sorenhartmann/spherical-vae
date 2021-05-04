@@ -134,8 +134,7 @@ def main(
         if best_loss is None or loss < best_loss:
             best_loss = loss
             torch.save(model.state_dict(), run_dir / f"final_{model_name}.pt")
-            torch.save(model.best_params, run_dir / f"best_{model_name}.pt")
-
+            torch.save(mt.best_params, run_dir / f"best_{model_name}.pt")
 
 if __name__ == "__main__":
     main()
