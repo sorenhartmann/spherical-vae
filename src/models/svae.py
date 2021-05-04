@@ -99,9 +99,9 @@ class SphericalVAE(Module):
         px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
         kl_term = kl_divergence(qz, pz)
 
-        loss = -px.log_prob(batch) + beta * kl_term
+        elbo = px.log_prob(batch) + beta * kl_term
 
-        return loss
+        return elbo
 
     def log_likelihood(self, x, S = 10):
          # define the posterior q(z|x) / encode x into q(z|x)
