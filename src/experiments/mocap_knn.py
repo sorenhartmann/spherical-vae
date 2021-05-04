@@ -2,7 +2,7 @@ from src.data.mocap import MotionCaptureDataset
 from src.models.vae import VariationalAutoencoder
 from src.models.svae import SphericalVAE
 from src.experiments.mocap import model_args
-from src.visualizations.mocap import get_test_data
+from src.visualizations.mocap import get_experiment_data
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import cross_val_score
@@ -22,13 +22,23 @@ if __name__ == "__main__":
 
     for experiment in experiments:
 
-        X_, classes_, obs_labels_ = get_test_data(experiment)
-        sorted_obs_labels = pd.Series(obs_labels_).str.split(":", expand=True).astype({0:str, 1:int}).sort_values([0, 1])
-        trial_ids = sorted_obs_labels[0]
-        sorted_order = sorted_obs_labels.index
+        # Training data
+        X_train, classes_train, obs_labels_train = get_experiment_data(experiment, test=False)
+        sorted_obs_labels_train = pd.Series(obs_labels_train).str.split(":", expand=True).astype({0:str, 1:int}).sort_values([0, 1])
+        trial_ids_train = sorted_obs_labels_train[0]
+        sorted_order_train = sorted_obs_labels_train.index
 
-        X = X_[sorted_order, :]
-        classes = np.array(classes_)[sorted_order]
+        X_train = X_train[sorted_order_train, :]
+        classes_train = np.array(classes_train)[sorted_order_train]
+
+        # Test data
+        X_test, classes_test, obs_labels_test = get_experiment_data(experiment, test=True)
+        sorted_obs_labels_test = pd.Series(obs_labels_test).str.split(":", expand=True).astype({0:str, 1:int}).sort_values([0, 1])
+        trial_ids_test = sorted_obs_labels_test[0]
+        sorted_order_test = sorted_obs_labels_test.index
+
+        X_test = X_test[sorted_order_test, :]
+        classes_test = np.array(classes_test)[sorted_order_test]
 
         state_dict_path = run_dir / experiment / "best_vae.pt"
         
@@ -39,11 +49,13 @@ if __name__ == "__main__":
             )
             vae.load_state_dict(vae_state_dict)
 
-            Z = vae(X)["z"].detach().numpy()
+            Z_train = vae(X_train)["z"].detach().numpy()
+            Z_test = vae(X_test)["z"].detach().numpy()
             knn_vae = KNeighborsClassifier(n_neighbors=3)
-            knn_vae.fit(Z, classes)
+            knn_vae.fit(Z_train, classes_train)
+            knn_vae.score(Z_test, classes_test)
 
-            print(f"VAE for {experiment}: {cross_val_score(knn_vae, Z, classes)}")
+            print(f"VAE for {experiment}: {knn_vae.score(Z_test, classes_test)}")
 
         state_dict_path = run_dir / experiment / "best_svae.pt"
         
@@ -54,10 +66,12 @@ if __name__ == "__main__":
             )
             svae.load_state_dict(svae_state_dict)
 
-            Z = svae(X)["z"].detach().numpy()
+            Z_train = svae(X_train)["z"].detach().numpy()
+            Z_test = svae(X_test)["z"].detach().numpy()
             knn_svae = KNeighborsClassifier(n_neighbors=3)
-            knn_svae.fit(Z, classes)
+            knn_vae.fit(Z_train, classes_train)
+            knn_vae.score(Z_test, classes_test)
 
-            print(f"S-VAE for {experiment}: {cross_val_score(knn_svae, Z, classes)}")
+            print(f"S-VAE for {experiment}: {knn_vae.score(Z_test, classes_test)}")
 
 

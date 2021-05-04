@@ -18,10 +18,10 @@ sns.set_theme("paper", style="whitegrid")
 run_dir = Path(__file__).parents[2] / "runs"
 pattern = re.compile("_(\d+):")
 
-def get_test_data(experiment_name):
+def get_experiment_data(experiment_name, test=True):
     if experiment_name == "run-walk":
-        run_data = MotionCaptureDataset("09", test=True)
-        walk_data = MotionCaptureDataset("08", test=True)
+        run_data = MotionCaptureDataset("09", test=test)
+        walk_data = MotionCaptureDataset("08", test=test)
 
         X = torch.cat([run_data.X, walk_data.X])
         classes = ["Run"] * len(run_data) + ["Walk"] * len(walk_data)
@@ -29,8 +29,8 @@ def get_test_data(experiment_name):
 
         return X, classes, obs_labels
     elif experiment_name == "dancing":
-        salsa_data = MotionCaptureDataset("60", test=True)
-        indian_data = MotionCaptureDataset("94", test=True)
+        salsa_data = MotionCaptureDataset("60", test=test)
+        indian_data = MotionCaptureDataset("94", test=test)
         X = torch.cat([salsa_data.X, indian_data.X])
         classes = ["Salsa"] * len(salsa_data) + ["Indian Dance"] * len(indian_data)
         obs_labels = salsa_data.labels + indian_data.labels
@@ -38,7 +38,7 @@ def get_test_data(experiment_name):
 
     elif experiment_name == "swimming":
 
-        swim_data = MotionCaptureDataset("126", test=True)
+        swim_data = MotionCaptureDataset("126", test=test)
         num_to_stroke = {
             1: "Back Stroke",
             2: "Back Stroke",
@@ -61,8 +61,8 @@ def get_test_data(experiment_name):
         return swim_data.X, classes, swim_data.labels
 
     elif experiment_name == "walk-walk":
-        walk_1_data = MotionCaptureDataset("07", test=True)
-        walk_2_data = MotionCaptureDataset("08", test=True)
+        walk_1_data = MotionCaptureDataset("07", test=test)
+        walk_2_data = MotionCaptureDataset("08", test=test)
         X = torch.cat([walk_1_data.X, walk_2_data.X])
         classes = ["Walk 1"] * len(walk_1_data) + ["Walk 2"] * len(walk_2_data)
 
@@ -70,6 +70,8 @@ def get_test_data(experiment_name):
 
         return X, classes, obs_labels
 
+def get_test_data(experiment_name):
+    return get_experiment_data(experiment_name, True)
 
 def spherical_coordinates(x, y, z):
 
