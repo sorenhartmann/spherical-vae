@@ -11,14 +11,14 @@ import numpy as np
 from math import floor
 from sklearn.metrics import roc_auc_score
 
-run_dir = Path(__file__).parents[2] / "runs" / "swimming"
-
 def spherical_coordiate(x, y, z):
     lambda_ = np.arccos(z) * 2 
     phi = np.arctan2(y, x) 
     return lambda_, phi
 
-def in_dist_samples(experiment_name, n_samples= 100):
+def in_dist_samples(experiment_name, n_samples= 100, seed = 40521):
+    torch.manual_seed(seed)
+    
     X, _, _ = get_test_data(experiment_name)
 
     perm = torch.randperm(X.shape[0])
@@ -27,7 +27,8 @@ def in_dist_samples(experiment_name, n_samples= 100):
 
     return(samples)
     
-def out_of_dist_samples(n_samples = 100):
+def out_of_dist_samples(n_samples = 100, seed = 40521):
+    torch.manual_seed(seed)
 
     datasets = [
             MotionCaptureDataset("24"),  # nursery rhymes
@@ -54,6 +55,10 @@ def out_of_dist_samples(n_samples = 100):
 def get_roc_auc_score(experiment_name, n_samples_in_dist = 100, n_samples_out_dist = 100, n_samples_monte_carlo = 32):
     in_dist_X = in_dist_samples(experiment_name, n_samples=n_samples_in_dist) 
     out_of_dist_X = out_of_dist_samples(n_samples=n_samples_out_dist)
+
+    run_dir = Path(__file__).parents[2] / "runs" / experiment_name
+
+    print(run_dir)
 
     vae = VariationalAutoencoder(latent_dim=2, **model_args)
     vae_state_dict = torch.load(
@@ -111,7 +116,7 @@ def get_roc_auc_score(experiment_name, n_samples_in_dist = 100, n_samples_out_di
     return roc_auc_svae, roc_auc_vae
     
 if __name__ == "__main__":
-    roc_auc_svae_swimming, roc_auc_vae_swimming = get_roc_auc_score("swimming")
-    roc_auc_svae_dancing, roc_auc_vae_dancing = get_roc_auc_score("dancing")
-    roc_auc_svae_walk_walk, roc_auc_vae_walk_walk = get_roc_auc_score("walk-walk")
-    roc_auc_svae_walk_run, roc_auc_vae_walk_run = get_roc_auc_score("run-walk")
+    roc_auc_svae_swimming, roc_auc_vae_swimming = get_roc_auc_score("swimming", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    roc_auc_svae_dancing, roc_auc_vae_dancing = get_roc_auc_score("dancing", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    roc_auc_svae_walk_walk, roc_auc_vae_walk_walk = get_roc_auc_score("walk-walk", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)
+    roc_auc_svae_walk_run, roc_auc_vae_walk_run = get_roc_auc_score("run-walk", n_samples_in_dist = 200, n_samples_out_dist= 200, n_samples_monte_carlo=125)

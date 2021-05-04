@@ -30,7 +30,7 @@ class SphericalVAEWithoutCorrection(SphericalVAE):
             return loss.mean(), kl_term.mean()
 
 
-layer_sizes = [700, 750, 700]
+layer_sizes = [150]
 latent_dim = 3
 n_features = 62
 
@@ -54,8 +54,8 @@ model_args = {
 @click.option("--batch-size", type=int, default=16, show_default=True)
 @click.option("--n-models", type=int, default=5)
 @click.option("--n-epochs", type=int, default=1000)
-@click.option("--lr", type=float, default=1e-4)
-@click.option("--beta_0", type=float, default=0.1)
+@click.option("--lr", type=float, default=5e-4)
+@click.option("--beta_0", type=float, default= 1.)
 @click.option("--run-name", type=str)
 def main(
    train_split, batch_size, n_models, n_epochs, lr, beta_0, run_name

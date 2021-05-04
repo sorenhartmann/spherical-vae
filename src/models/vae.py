@@ -99,6 +99,15 @@ class VariationalAutoencoder(nn.Module):
         else:
             return loss.mean(), kl_term.mean()
 
+    def get_ELBO_per_obs(self, batch, beta=1.0):
+        output = self(batch)
+        px, pz, qz, z = [output[k] for k in ["px", "pz", "qz", "z"]]
+        kl_term = kl_divergence(Independent(qz, 1), Independent(pz, 1))
+
+        loss = -px.log_prob(batch).sum(-1) + beta * kl_term
+
+        return loss 
+
     def log_likelihood(self, x, S = 10):
          # define the posterior q(z|x) / encode x into q(z|x)
         qz = self.posterior(x)
@@ -118,7 +127,10 @@ class VariationalAutoencoder(nn.Module):
             tmp = mp.log(sum([mp.exp(t) for t in  sum_log_lik[:,i].detach().numpy()]) / S)
             log_lik[i] = float(tmp) 
 
-        return {"log_like": log_lik}
+        ave_log_lik = log_lik.mean()
+        n_in_ave = x.shape[0]
+
+        return {"log_like": log_lik, "average_log_like": ave_log_lik, "n": n_in_ave}
 
 if __name__ == "__main__":
     dataset = MotionCaptureDataset("07", test=True)
