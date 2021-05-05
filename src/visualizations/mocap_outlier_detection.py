@@ -8,12 +8,14 @@ import seaborn as sns
 import torch
 from sklearn.metrics import roc_auc_score
 from src.data.mocap import MotionCaptureDataset
-from src.experiments.mocap import model_args
+from src.experiments.mocap import model_args, get_test_data
 from src.models.svae import SphericalVAE
 from src.models.vae import VariationalAutoencoder
-from src.visualizations.common import get_test_data
 
 overleaf_dir = Path(__file__).resolve().parents[2] / "overleaf" / "figures"
+sns.set_theme("talk", style="whitegrid", rc={"axes.grid": False})
+hue_order = ['In dist.', 'Out of dist.']
+col_order = ["VAE", "SVAE"]
 
 def in_dist_samples(experiment_name, n_samples= 100, seed = 40521):
     torch.manual_seed(seed)
@@ -141,7 +143,7 @@ if __name__ == "__main__":
     log_lik_ELBO_walk_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_walk_walk = get_roc_auc_score(log_lik_ELBO_walk_walk, "walk-walk")
         
-    log_lik_ELBO_run_walk = get_log_like_and_ELBO("walk-walk", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
+    log_lik_ELBO_run_walk = get_log_like_and_ELBO("run-walk", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
     roc_auc_run_walk = get_roc_auc_score(log_lik_ELBO_run_walk, "run-walk")
 
     log_lik_ELBO_dancing = get_log_like_and_ELBO("dancing", n_samples_in_dist = 300, n_samples_out_dist= 300, n_samples_monte_carlo=300)
@@ -158,8 +160,8 @@ if __name__ == "__main__":
     for experiment, result in results:
         for tag, (model, data) in [
             ("log_lik_vae_in_dist", ("VAE", "In dist.")),
-            ("log_lik_vae_out_of_dist", ("VAE", "Out of dist.")),
             ("log_lik_svae_in_dist", ("SVAE", "In dist.") ),
+            ("log_lik_vae_out_of_dist", ("VAE", "Out of dist.")),
             ("log_lik_svae_out_of_dist", ("SVAE", "Out of dist.") ),
         ]:
             df = df.append(pd.DataFrame({
@@ -173,17 +175,20 @@ if __name__ == "__main__":
     df.reset_index(inplace=True, drop=True)
 
     min_log_lik = -1200
-    sns.set_theme("notebook", "whitegrid")
+    
     fig = sns.displot(
         data=df[df["LL"] > min_log_lik],
         x="LL",
         col="Model",
+        col_order=col_order,
         hue="Data",
+        hue_order=hue_order,
         row="Experiment",
         kind="hist",
-        bins=40,
+        palette=sns.color_palette("husl", 2),
+        bins=30,
         common_bins=True,
-        aspect=1.3
+        aspect=1.4
     )
     if overleaf_dir.exists():
         fig.savefig(overleaf_dir / "outlier_all.pdf")
@@ -193,11 +198,15 @@ if __name__ == "__main__":
         data=df[(df["LL"] > min_log_lik) & (df["Experiment"] == "Swimming")],
         x="LL",
         col="Model",
+        col_order=col_order,
         hue="Data",
+        hue_order=hue_order,
         kind="hist",
-        bins=40,
+        bins=30,
+        height=3,
         common_bins=True,
-        aspect=1
+        palette=sns.color_palette("husl", 2),
+        aspect=1.3
     )
 
     if overleaf_dir.exists():

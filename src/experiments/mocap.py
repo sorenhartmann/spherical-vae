@@ -6,6 +6,7 @@ from src.models.common import ModelTrainer, BetaFunction
 from torch.utils.data import ConcatDataset
 import torch
 import click
+import re
 
 cuda = torch.cuda.is_available()
 if cuda:
@@ -77,6 +78,62 @@ def get_data(experiment_name, train_split):
 
     return train_dataset_concat, validation_dataset_concat
 
+def get_experiment_data(experiment_name, test=True):
+
+    if experiment_name == "run-walk":
+        run_data = MotionCaptureDataset("09", test=test)
+        walk_data = MotionCaptureDataset("08", test=test)
+
+        X = torch.cat([run_data.X, walk_data.X])
+        classes = ["Run"] * len(run_data) + ["Walk"] * len(walk_data)
+        obs_labels = run_data.labels + walk_data.labels
+
+        return X, classes, obs_labels
+    elif experiment_name == "dancing":
+        salsa_data = MotionCaptureDataset("60", test=test)
+        indian_data = MotionCaptureDataset("94", test=test)
+        X = torch.cat([salsa_data.X, indian_data.X])
+        classes = ["Salsa"] * len(salsa_data) + ["Indian Dance"] * len(indian_data)
+        obs_labels = salsa_data.labels + indian_data.labels
+        return X, classes, obs_labels
+
+    elif experiment_name == "swimming":
+
+        pattern = re.compile("_(\d+):")
+        swim_data = MotionCaptureDataset("126", test=test)
+        num_to_stroke = {
+            1: "Back Stroke",
+            2: "Back Stroke",
+            3: "Breast Stroke",
+            4: "Breast Stroke",
+            5: "Breast Stroke",
+            6: "Fly Stroke",
+            7: "Fly Stroke",
+            8: "Fly Stroke",
+            9: "Fly Stroke",
+            10: "Free Style",
+            11: "Free Style",
+            12: "Free Style",
+            13: "Motorcycle",
+            14: "Range of Motion",
+        }
+        trial_numbers = [int(pattern.search(s).group(1)) for s in swim_data.labels]
+        classes = [num_to_stroke[i] for i in trial_numbers]
+
+        return swim_data.X, classes, swim_data.labels
+
+    elif experiment_name == "walk-walk":
+        walk_1_data = MotionCaptureDataset("07", test=test)
+        walk_2_data = MotionCaptureDataset("08", test=test)
+        X = torch.cat([walk_1_data.X, walk_2_data.X])
+        classes = ["Walk 1"] * len(walk_1_data) + ["Walk 2"] * len(walk_2_data)
+
+        obs_labels = walk_1_data.labels + walk_2_data.labels
+
+        return X, classes, obs_labels
+
+def get_test_data(experiment_name):
+    return get_experiment_data(experiment_name, True)
 
 @click.command()
 @click.argument("model-name", default="svae")

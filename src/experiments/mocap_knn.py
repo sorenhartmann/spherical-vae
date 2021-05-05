@@ -1,18 +1,12 @@
-from src.data.mocap import MotionCaptureDataset
-from src.models.vae import VariationalAutoencoder
-from src.models.svae import SphericalVAE
-from src.experiments.mocap import model_args
-from src.visualizations.mocap import get_experiment_data
-from sklearn.decomposition import PCA
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.model_selection import cross_val_score
-from torch.utils.data import ConcatDataset, DataLoader
-from src.utils import plot_3d
 from pathlib import Path
-import optuna
-import torch
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import torch
+from sklearn.neighbors import KNeighborsClassifier
+from src.experiments.mocap import get_experiment_data, model_args
+from src.models.svae import SphericalVAE
+from src.models.vae import VariationalAutoencoder
 
 run_dir = Path(__file__).parents[2] / "runs"
 

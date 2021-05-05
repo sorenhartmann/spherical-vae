@@ -9,7 +9,6 @@ from src.models.svae import SphericalVAE
 from src.models.vae import VariationalAutoencoder
 from src.utils import plot_3d
 
-sns.set_theme(style="whitegrid")
 
 run_dir = Path(__file__).parents[2] / "runs"
 overleaf_dir = Path(__file__).resolve().parents[2] / "overleaf" / "figures"
