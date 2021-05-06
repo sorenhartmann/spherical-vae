@@ -79,7 +79,7 @@ if __name__ == "__main__":
             #print(f"SVAE for {experiment}: knn score: {score}, elbo: {elbo}, log likelihood: {log_like}")
         
 
-    results.to_latex()
+    results.to_latex((float_format="{:0.3f}".format))
 
     
     
