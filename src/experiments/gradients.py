@@ -4,6 +4,8 @@ import click
 import torch
 from src.models.svae import SphericalVAE, SphericalVAEWithCorrection
 from src.data.mocap import MotionCaptureDataset, split_time_series
+from src.data.synthetic import SyntheticS2
+from torch.utils.data import random_split
 
 cuda = torch.cuda.is_available()
 if cuda:
@@ -11,9 +13,9 @@ if cuda:
 else:
     device = torch.device("cpu")
 
-layer_sizes = [150]
+layer_sizes = [100, 100]
 latent_dim = 3
-n_features = 62
+n_features = 50
 
 model_args = {
     "latent_dim" : latent_dim,
@@ -49,9 +51,15 @@ def main(
 
     run_dir = Path(__file__).parents[2] / "runs" /  run_name
 
-    dataset = MotionCaptureDataset("07")
-    dataset.to(device)
-    train_dataset, validation_dataset = split_time_series(dataset, 0.7)
+    dataset = SyntheticS2()
+
+    train_size = int(train_split * len(dataset))
+    validation_size = len(dataset) - train_size
+    train_dataset, validation_dataset = random_split(
+        dataset,
+        [train_size, validation_size],
+        generator=torch.Generator().manual_seed(42),
+    )
 
     trainer_args = {
         "n_epochs": n_epochs,
