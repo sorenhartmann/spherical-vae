@@ -212,3 +212,24 @@ if __name__ == "__main__":
     if overleaf_dir.exists():
         fig.savefig(overleaf_dir / "outlier_swimming.pdf")
 
+    # To pandas 
+    experiments = ["run-walk", "swimming", "dancing", "walk-walk"]
+    stats = ["ELBO", "LL"]
+    columns = pd.MultiIndex.from_tuples([['AUC of ROC (LL)', 'VAE'], ['AUC of ROC (LL)',  'S-VAE'], ['AUC of ROC (ELBO)',  'VAE'], ['AUC of ROC (ELBO)', 'S-VAE']], names=["Statistic" ,"Model"])
+    results = pd.DataFrame(columns = columns, index = experiments)
+
+    roc_auc = {"swimming": roc_auc_swimming, "walk-walk":roc_auc_walk_walk, "run-walk": roc_auc_run_walk, "dancing": roc_auc_dancing}
+    
+
+    for experiment in experiments:
+        for stat in stats: 
+            if stat == "LL":
+                stat_roc = "log_lik"
+            else:
+                stat_roc = stat
+
+            results.loc[experiment, (f"AUC of ROC ({stat})", 'VAE')] = roc_auc[experiment][f"{stat_roc}_vae"]
+            results.loc[experiment, (f"AUC of ROC ({stat})", 'S-VAE')] = roc_auc[experiment][f"{stat_roc}_svae"]
+
+    print(results)
+    print(results.to_latex(float_format="{:0.3f}".format))
